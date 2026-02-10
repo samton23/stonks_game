@@ -60,7 +60,7 @@ def _get_setting(db: Session, key: str, default: str = "") -> str:
 
 
 def _resolve_player(body: dict, db: Session) -> Player:
-    """Authenticate via initData or dev fallback and return Player."""
+    """Authenticate via initData or telegram_id and return Player."""
     init_data = body.get("initData", "")
     user = validate_init_data(init_data)
 
@@ -92,7 +92,7 @@ def _calc_revenue(player: Player) -> float:
 
 @router.post("/auth")
 def webapp_auth(body: dict, db: Session = Depends(get_db)):
-    """Authenticate via Telegram WebApp initData and return player profile."""
+    """Authenticate via Telegram WebApp initData or telegram_id and return player profile."""
     player = _resolve_player(body, db)
     current_cycle = int(_get_setting(db, "current_cycle", "0"))
 

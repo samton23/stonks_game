@@ -18,6 +18,8 @@ export const createPlayer = (data: { telegram_id: number; name: string }) =>
   request('/players', { method: 'POST', body: JSON.stringify(data) });
 export const deletePlayer = (id: number) =>
   request(`/players/${id}`, { method: 'DELETE' });
+export const getPlayerInvitation = (id: number) =>
+  request(`/players/${id}/invitation`, { method: 'POST' });
 
 // Enterprises
 export const getEnterprises = () => request('/enterprises');
@@ -68,6 +70,8 @@ export const webappAuth = (initData: string) =>
   request('/webapp/auth', { method: 'POST', body: JSON.stringify({ initData }) });
 export const webappAuthDev = (telegramId: number) =>
   request('/webapp/auth', { method: 'POST', body: JSON.stringify({ telegram_id: telegramId }) });
+export const webappAuthToken = (token: string) =>
+  request('/webapp/auth', { method: 'POST', body: JSON.stringify({ token }) });
 export const getWebappRules = () => request('/webapp/rules');
 export const getWebappPrices = () => request('/webapp/prices');
 
@@ -76,7 +80,11 @@ export const getWebappNotifications = (initData: string) =>
   request('/webapp/notifications', { method: 'POST', body: JSON.stringify({ initData }) });
 export const getWebappNotificationsDev = (telegramId: number) =>
   request('/webapp/notifications', { method: 'POST', body: JSON.stringify({ telegram_id: telegramId }) });
+export const getWebappNotificationsToken = (token: string) =>
+  request('/webapp/notifications', { method: 'POST', body: JSON.stringify({ token }) });
 export const markNotificationsRead = (initData: string, ids: number[]) =>
   request('/webapp/notifications/read', { method: 'POST', body: JSON.stringify({ initData, ids }) });
 export const markNotificationsReadDev = (telegramId: number, ids: number[]) =>
   request('/webapp/notifications/read', { method: 'POST', body: JSON.stringify({ telegram_id: telegramId, ids }) });
+export const markNotificationsReadToken = (token: string, ids: number[]) =>
+  request('/webapp/notifications/read', { method: 'POST', body: JSON.stringify({ token, ids }) });
