@@ -6,13 +6,20 @@ from database import engine, Base, SessionLocal
 from models import GameSetting, Enterprise, Notification
 from routes import players, enterprises, settings, game, webapp
 
-# Migrate notifications table if schema changed
+# Migrate tables if schema changed
 _inspector = inspect(engine)
 if _inspector.has_table("notifications"):
     existing_cols = {c["name"] for c in _inspector.get_columns("notifications")}
     if "player_id" not in existing_cols:
         with engine.begin() as conn:
             conn.execute(text("DROP TABLE notifications"))
+
+# Remove invitation_token column if exists
+if _inspector.has_table("players"):
+    existing_cols = {c["name"] for c in _inspector.get_columns("players")}
+    if "invitation_token" in existing_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE players DROP COLUMN IF EXISTS invitation_token"))
 
 # Create tables
 Base.metadata.create_all(bind=engine)

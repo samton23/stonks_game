@@ -5,9 +5,9 @@ import {
   Wallet, RefreshCw, Calculator, Delete
 } from 'lucide-react'
 import {
-  webappAuth, webappAuthDev, webappAuthToken, getWebappRules, getWebappPrices,
-  getWebappNotifications, getWebappNotificationsDev, getWebappNotificationsToken,
-  markNotificationsRead, markNotificationsReadDev, markNotificationsReadToken,
+  webappAuth, webappAuthDev, getWebappRules, getWebappPrices,
+  getWebappNotifications, getWebappNotificationsDev,
+  markNotificationsRead, markNotificationsReadDev,
 } from '../../api'
 import type { WebAppPlayer, PriceItem, InAppNotification } from '../../types'
 

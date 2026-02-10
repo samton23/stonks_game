@@ -11,7 +11,6 @@ class Player(Base):
     telegram_id = Column(BigInteger, unique=True, index=True, nullable=False)
     name = Column(String(255), nullable=False)
     money = Column(Float, default=0)
-    invitation_token = Column(String(64), unique=True, index=True, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     enterprises = relationship("PlayerEnterprise", back_populates="player", cascade="all, delete-orphan")
