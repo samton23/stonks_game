@@ -187,13 +187,16 @@ def add_enterprise_to_player(player_id: int, enterprise_id: int, db: Session = D
     if existing:
         raise HTTPException(400, "Player already has this enterprise")
 
+    # Deduct enterprise price
+    player.money = round(player.money - enterprise.price, 2)
+
     pe = PlayerEnterprise(player_id=player_id, enterprise_id=enterprise_id, factory_count=0)
     db.add(pe)
 
     _create_notification(
         db, player_id, "enterprise", enterprise.emoji,
         "Новое предприятие!",
-        f"Вам добавлено: {enterprise.name}",
+        f"Вам добавлено: {enterprise.name}\n-${enterprise.price:,.0f} • Баланс: ${player.money:,.0f}",
     )
 
     db.commit()
@@ -232,15 +235,22 @@ def add_factory(player_id: int, enterprise_id: int, data: FactoryAdjust, db: Ses
     ).first()
     if not pe:
         raise HTTPException(404, "Player enterprise not found")
-    pe.factory_count = max(0, pe.factory_count + data.count)
 
+    player = db.query(Player).filter(Player.id == player_id).first()
     enterprise = db.query(Enterprise).filter(Enterprise.id == enterprise_id).first()
     ent_name = enterprise.name if enterprise else "предприятие"
+
+    # Deduct factory price × count
+    cost = enterprise.factory_price * data.count if enterprise else 0
+    if player and cost > 0:
+        player.money = round(player.money - cost, 2)
+
+    pe.factory_count = max(0, pe.factory_count + data.count)
 
     _create_notification(
         db, player_id, "factory", "🏗",
         "Новый завод!",
-        f"+{data.count} завод для {ent_name}\nВсего заводов: {pe.factory_count}",
+        f"+{data.count} завод для {ent_name}\n-${cost:,.0f} • Баланс: ${player.money:,.0f}" if player else f"+{data.count} завод для {ent_name}",
     )
 
     db.commit()
