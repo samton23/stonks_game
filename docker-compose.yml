@@ -21,6 +21,7 @@ services:
     environment:
       DATABASE_URL: postgresql://stonks:stonks@postgres:5432/stonks
       BOT_TOKEN: ${BOT_TOKEN}
+      WEBAPP_URL: ${WEBAPP_URL}
     depends_on:
       postgres:
         condition: service_healthy

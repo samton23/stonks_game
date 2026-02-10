@@ -85,8 +85,11 @@ async def send_invitation(player_id: int, db: Session = Depends(get_db)):
     if not player:
         raise HTTPException(404, "Player not found")
     
-    # Get base URL from env or use default
-    base_url = os.getenv("WEBAPP_URL", "https://example.com")
+    # Get base URL from env
+    base_url = os.getenv("WEBAPP_URL", "")
+    if not base_url:
+        raise HTTPException(500, "WEBAPP_URL not configured")
+    # Remove /app suffix if present
     if base_url.endswith("/app"):
         base_url = base_url.replace("/app", "")
     # Use Telegram ID in the link
