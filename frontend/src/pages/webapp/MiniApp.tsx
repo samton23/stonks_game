@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   TrendingUp, Building2, Factory, ScrollText, DollarSign,
-  Wallet, RefreshCw
+  Wallet, RefreshCw, Calculator, Delete
 } from 'lucide-react'
 import {
   webappAuth, webappAuthDev, getWebappRules, getWebappPrices,
@@ -11,7 +11,7 @@ import {
 } from '../../api'
 import type { WebAppPlayer, PriceItem, InAppNotification } from '../../types'
 
-type Tab = 'profile' | 'prices' | 'rules'
+type Tab = 'profile' | 'prices' | 'rules' | 'calc'
 
 /* ───────── Animated number ───────── */
 function AnimatedMoney({ value }: { value: number }) {
@@ -218,6 +218,225 @@ function NotificationOverlay({
   )
 }
 
+/* ───────── Safe expression evaluator ───────── */
+function safeEval(expr: string): string {
+  try {
+    // Only allow digits, operators, parentheses, dots, spaces
+    const sanitized = expr.replace(/[^0-9+\-*/().% ]/g, '')
+    if (!sanitized.trim()) return ''
+    // Replace % with /100* for percentage support isn't needed, keep simple
+    const result = new Function(`"use strict"; return (${sanitized})`)()
+    if (typeof result !== 'number' || !isFinite(result)) return 'Ошибка'
+    // Format nicely
+    return Number.isInteger(result) ? result.toLocaleString() : result.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  } catch {
+    return ''
+  }
+}
+
+/* ───────── Calculator Tab Component ───────── */
+function CalculatorTab({ prices, tg }: { prices: PriceItem[]; tg: any }) {
+  const [expr, setExpr] = useState('')
+  const [result, setResult] = useState('')
+  const [lastInserted, setLastInserted] = useState<string | null>(null)
+
+  // Live evaluate
+  useEffect(() => {
+    setResult(safeEval(expr))
+  }, [expr])
+
+  const append = (val: string) => {
+    setExpr((prev) => prev + val)
+    setLastInserted(null)
+    try { tg?.HapticFeedback.impactOccurred('light') } catch {}
+  }
+
+  const insertPrice = (label: string, value: number) => {
+    setExpr((prev) => prev + value.toString())
+    setLastInserted(label)
+    try { tg?.HapticFeedback.impactOccurred('medium') } catch {}
+    // Clear highlight after a moment
+    setTimeout(() => setLastInserted(null), 800)
+  }
+
+  const clear = () => {
+    setExpr('')
+    setResult('')
+    setLastInserted(null)
+    try { tg?.HapticFeedback.impactOccurred('medium') } catch {}
+  }
+
+  const backspace = () => {
+    setExpr((prev) => prev.slice(0, -1))
+    setLastInserted(null)
+    try { tg?.HapticFeedback.impactOccurred('light') } catch {}
+  }
+
+  const calculate = () => {
+    const res = safeEval(expr)
+    if (res && res !== 'Ошибка') {
+      setExpr(res.replace(/\s/g, '').replace(/,/g, ''))
+      setResult('')
+    }
+    try { tg?.HapticFeedback.notificationOccurred('success') } catch {}
+  }
+
+  const btnClass = 'flex items-center justify-center rounded-xl text-lg font-semibold transition-all active:scale-95'
+
+  return (
+    <motion.div
+      key="calc"
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -20 }}
+      transition={{ duration: 0.2 }}
+      className="p-5 flex flex-col"
+    >
+      <h1 className="text-2xl font-extrabold mb-1">Калькулятор 🧮</h1>
+      <p className="text-gray-500 text-sm mb-4">Подставляй цены предприятий и заводов</p>
+
+      {/* Quick-insert price chips */}
+      {prices.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-4"
+        >
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Быстрая подстановка</div>
+          <div className="flex flex-wrap gap-1.5">
+            {prices.map((p) => (
+              <div key={p.id} className="contents">
+                {/* Enterprise price chip */}
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => insertPrice(`${p.emoji} ${p.name}`, p.price)}
+                  className={`
+                    flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
+                    transition-all duration-200
+                    ${lastInserted === `${p.emoji} ${p.name}`
+                      ? 'bg-accent-blue/20 border-accent-blue/40 text-accent-blue border'
+                      : 'glass border border-transparent hover:border-white/10 text-gray-300'}
+                  `}
+                >
+                  <span>{p.emoji}</span>
+                  <span className="max-w-[60px] truncate">{p.name}</span>
+                  <span className="text-[10px] text-gray-500 font-mono">${p.price.toLocaleString()}</span>
+                </motion.button>
+
+                {/* Factory price chip */}
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => insertPrice(`🏭 ${p.name}`, p.factory_price)}
+                  className={`
+                    flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
+                    transition-all duration-200
+                    ${lastInserted === `🏭 ${p.name}`
+                      ? 'bg-accent-gold/20 border-accent-gold/40 text-accent-gold border'
+                      : 'glass border border-transparent hover:border-white/10 text-gray-400'}
+                  `}
+                >
+                  <Factory size={11} />
+                  <span className="max-w-[60px] truncate">{p.name}</span>
+                  <span className="text-[10px] text-gray-500 font-mono">${p.factory_price.toLocaleString()}</span>
+                </motion.button>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Display */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="glass rounded-2xl p-4 mb-4 min-h-[90px] flex flex-col justify-end overflow-hidden"
+      >
+        {/* Expression */}
+        <div className="text-right text-gray-400 text-sm font-mono break-all leading-relaxed min-h-[20px]">
+          {expr || <span className="text-gray-600">0</span>}
+        </div>
+        {/* Result preview */}
+        <AnimatePresence mode="wait">
+          {result && (
+            <motion.div
+              key={result}
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -5 }}
+              className={`text-right font-mono font-black mt-1 ${
+                result === 'Ошибка' ? 'text-red-400 text-lg' : 'text-white text-2xl'
+              }`}
+            >
+              {result === 'Ошибка' ? result : `= ${result}`}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+
+      {/* Keypad */}
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="grid grid-cols-4 gap-2"
+      >
+        {/* Row 1 */}
+        <motion.button whileTap={{ scale: 0.9 }} onClick={clear}
+          className={`${btnClass} bg-red-500/15 text-red-400 h-12`}>C</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('(')}
+          className={`${btnClass} bg-dark-700 text-gray-300 h-12`}>(</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append(')')}
+          className={`${btnClass} bg-dark-700 text-gray-300 h-12`}>)</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('/')}
+          className={`${btnClass} bg-accent-blue/15 text-accent-blue h-12`}>÷</motion.button>
+
+        {/* Row 2 */}
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('7')}
+          className={`${btnClass} bg-dark-700/60 text-white h-12`}>7</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('8')}
+          className={`${btnClass} bg-dark-700/60 text-white h-12`}>8</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('9')}
+          className={`${btnClass} bg-dark-700/60 text-white h-12`}>9</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('*')}
+          className={`${btnClass} bg-accent-blue/15 text-accent-blue h-12`}>×</motion.button>
+
+        {/* Row 3 */}
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('4')}
+          className={`${btnClass} bg-dark-700/60 text-white h-12`}>4</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('5')}
+          className={`${btnClass} bg-dark-700/60 text-white h-12`}>5</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('6')}
+          className={`${btnClass} bg-dark-700/60 text-white h-12`}>6</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('-')}
+          className={`${btnClass} bg-accent-blue/15 text-accent-blue h-12`}>−</motion.button>
+
+        {/* Row 4 */}
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('1')}
+          className={`${btnClass} bg-dark-700/60 text-white h-12`}>1</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('2')}
+          className={`${btnClass} bg-dark-700/60 text-white h-12`}>2</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('3')}
+          className={`${btnClass} bg-dark-700/60 text-white h-12`}>3</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('+')}
+          className={`${btnClass} bg-accent-blue/15 text-accent-blue h-12`}>+</motion.button>
+
+        {/* Row 5 */}
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('0')}
+          className={`${btnClass} bg-dark-700/60 text-white h-12`}>0</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('.')}
+          className={`${btnClass} bg-dark-700/60 text-white h-12`}>.</motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={backspace}
+          className={`${btnClass} bg-dark-700/60 text-gray-400 h-12`}>
+          <Delete size={18} />
+        </motion.button>
+        <motion.button whileTap={{ scale: 0.9 }} onClick={calculate}
+          className={`${btnClass} bg-accent-green/20 text-accent-green font-bold h-12`}>=</motion.button>
+      </motion.div>
+    </motion.div>
+  )
+}
+
 /* ───────── Main Mini App ───────── */
 export default function MiniApp() {
   const [player, setPlayer] = useState<WebAppPlayer | null>(null)
@@ -345,7 +564,7 @@ export default function MiniApp() {
     if (tab === 'rules') {
       getWebappRules().then((d) => setRules(d.rules)).catch(() => {})
     }
-    if (tab === 'prices') {
+    if (tab === 'prices' || tab === 'calc') {
       getWebappPrices().then((d) => setPrices(d)).catch(() => {})
     }
     try { tg?.HapticFeedback.selectionChanged() } catch {}
@@ -426,6 +645,7 @@ export default function MiniApp() {
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'profile', label: 'Профиль', icon: <Wallet size={18} /> },
     { id: 'prices', label: 'Цены', icon: <DollarSign size={18} /> },
+    { id: 'calc', label: 'Расчёт', icon: <Calculator size={18} /> },
     { id: 'rules', label: 'Правила', icon: <ScrollText size={18} /> },
   ]
 
@@ -732,6 +952,9 @@ export default function MiniApp() {
             </motion.div>
           )}
 
+          {/* ─── CALCULATOR TAB ─── */}
+          {tab === 'calc' && <CalculatorTab prices={prices} tg={tg} />}
+
           {/* ─── RULES TAB ─── */}
           {tab === 'rules' && (
             <motion.div
@@ -771,7 +994,7 @@ export default function MiniApp() {
                   key={t.id}
                   whileTap={{ scale: 0.9 }}
                   onClick={() => setTab(t.id)}
-                  className={`relative flex flex-col items-center gap-1 py-2 px-5 rounded-xl transition-colors ${
+                  className={`relative flex flex-col items-center gap-1 py-2 px-3 rounded-xl transition-colors ${
                     active ? 'text-white' : 'text-gray-500'
                   }`}
                 >
