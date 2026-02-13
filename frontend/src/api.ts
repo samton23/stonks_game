@@ -18,6 +18,8 @@ export const createPlayer = (data: { telegram_id: number; name: string }) =>
   request('/players', { method: 'POST', body: JSON.stringify(data) });
 export const deletePlayer = (id: number) =>
   request(`/players/${id}`, { method: 'DELETE' });
+export const getPlayerInvitation = (id: number) =>
+  request(`/players/${id}/invitation`, { method: 'POST' });
 
 // Enterprises
 export const getEnterprises = () => request('/enterprises');

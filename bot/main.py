@@ -31,13 +31,16 @@ def webapp_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+
+
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     await message.answer(
         "📈  <b>STONKS GAME</b>\n"
         "━━━━━━━━━━━━━━━━━━━\n\n"
         "Добро пожаловать в игру!\n"
-        "Нажмите кнопку ниже, чтобы открыть игровую панель.",
+        "Нажмите кнопку ниже, чтобы открыть игровую панель.\n\n"
+        "💡  <i>Для доступа через браузер организатор отправит вам ссылку-приглашение.</i>",
         reply_markup=webapp_keyboard(),
     )
 

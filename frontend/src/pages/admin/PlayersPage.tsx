@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { UserPlus, Trash2, Copy, Users } from 'lucide-react'
+import { UserPlus, Trash2, Copy, Users, Share2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getPlayers, createPlayer, deletePlayer } from '../../api'
+import { getPlayers, createPlayer, deletePlayer, getPlayerInvitation } from '../../api'
 import type { Player } from '../../types'
 
 export default function PlayersPage() {
@@ -48,6 +48,24 @@ export default function PlayersPage() {
       load()
     } catch (e: any) {
       toast.error(e.message)
+    }
+  }
+
+  const handleInvite = async (id: number, playerName: string) => {
+    try {
+      const data = await getPlayerInvitation(id)
+      await navigator.clipboard.writeText(data.url)
+      if (data.sent) {
+        toast.success(`Приглашение отправлено ${playerName} в Telegram!`, {
+          duration: 4000,
+        })
+      } else {
+        toast.success(`Ссылка для ${playerName} скопирована!`, {
+          duration: 3000,
+        })
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Ошибка отправки приглашения')
     }
   }
 
@@ -131,13 +149,21 @@ export default function PlayersPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-6">
+              <div className="flex items-center gap-4">
                 <div className="text-right">
                   <div className="text-sm text-gray-500">Баланс</div>
                   <div className="font-mono font-semibold text-accent-green">
                     ${player.money.toLocaleString()}
                   </div>
                 </div>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => handleInvite(player.id, player.name)}
+                  className="px-4 py-2 bg-accent-blue/10 hover:bg-accent-blue/20 text-accent-blue rounded-lg font-medium flex items-center gap-2 transition-colors"
+                >
+                  <Share2 size={16} />
+                  Пригласить
+                </motion.button>
                 <button
                   onClick={() => handleDelete(player.id, player.name)}
                   className="p-2 hover:bg-accent-red/10 hover:text-accent-red rounded-lg text-gray-500"
