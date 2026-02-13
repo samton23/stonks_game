@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -46,7 +47,11 @@ def create_player(data: PlayerCreate, db: Session = Depends(get_db)):
     existing = db.query(Player).filter(Player.telegram_id == data.telegram_id).first()
     if existing:
         raise HTTPException(400, "Player with this Telegram ID already exists")
-    player = Player(telegram_id=data.telegram_id, name=data.name, money=0)
+    player = Player(
+        telegram_id=data.telegram_id,
+        name=data.name,
+        money=0,
+    )
     db.add(player)
     db.commit()
     db.refresh(player)
@@ -69,3 +74,54 @@ def delete_player(player_id: int, db: Session = Depends(get_db)):
     db.delete(player)
     db.commit()
     return {"ok": True}
+
+
+@router.post("/{player_id}/invitation")
+async def send_invitation(player_id: int, db: Session = Depends(get_db)):
+    """Send invitation link to player via Telegram bot using their Telegram ID."""
+    import httpx
+    
+    player = db.query(Player).filter(Player.id == player_id).first()
+    if not player:
+        raise HTTPException(404, "Player not found")
+    
+    # Get base URL from env
+    base_url = os.getenv("WEBAPP_URL", "")
+    if not base_url:
+        raise HTTPException(500, "WEBAPP_URL not configured")
+    # Remove /app suffix if present
+    if base_url.endswith("/app"):
+        base_url = base_url.replace("/app", "")
+    # Use Telegram ID in the link
+    invitation_url = f"{base_url}/app?tgid={player.telegram_id}"
+    
+    # Send invitation link via Telegram bot
+    bot_token = os.getenv("BOT_TOKEN", "")
+    sent = False
+    if bot_token:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    json={
+                        "chat_id": player.telegram_id,
+                        "text": (
+                            f"🎮  <b>Приглашение в игру</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n\n"
+                            f"Привет, {player.name}!\n\n"
+                            f"Организатор приглашает тебя в игру.\n"
+                            f"Открой ссылку ниже, чтобы начать:\n\n"
+                            f"<code>{invitation_url}</code>"
+                        ),
+                        "parse_mode": "HTML",
+                    }
+                )
+                if resp.status_code == 200:
+                    sent = True
+        except Exception:
+            pass  # Silently fail if bot can't send
+    
+    return {
+        "url": invitation_url,
+        "sent": sent,
+    }

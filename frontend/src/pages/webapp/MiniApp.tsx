@@ -452,11 +452,12 @@ export default function MiniApp() {
 
   // Helper: get auth params
   const getAuthBody = useCallback(() => {
+    const params = new URLSearchParams(window.location.search)
     const initData = tg?.initData || ''
     if (initData) return { initData }
-    const params = new URLSearchParams(window.location.search)
-    const devId = params.get('tgid')
-    if (devId) return { telegram_id: parseInt(devId) }
+    
+    const tgid = params.get('tgid')
+    if (tgid) return { telegram_id: parseInt(tgid) }
     return null
   }, [tg])
 
@@ -465,14 +466,17 @@ export default function MiniApp() {
     if (showRefresh) setRefreshing(true)
     try {
       let data
+      const params = new URLSearchParams(window.location.search)
       const initData = tg?.initData || ''
+      
       if (initData) {
+        // Telegram Mini App auth
         data = await webappAuth(initData)
       } else {
-        const params = new URLSearchParams(window.location.search)
-        const devId = params.get('tgid')
-        if (devId) {
-          data = await webappAuthDev(parseInt(devId))
+        // Web access via tgid parameter
+        const tgid = params.get('tgid')
+        if (tgid) {
+          data = await webappAuthDev(parseInt(tgid))
         } else {
           setError('dev_no_id')
           setLoading(false)
@@ -503,8 +507,10 @@ export default function MiniApp() {
       let notifs: InAppNotification[]
       if ('initData' in authBody) {
         notifs = await getWebappNotifications(authBody.initData)
-      } else {
+      } else if ('telegram_id' in authBody) {
         notifs = await getWebappNotificationsDev(authBody.telegram_id)
+      } else {
+        return
       }
 
       if (notifs.length > 0) {
@@ -519,7 +525,7 @@ export default function MiniApp() {
         const ids = notifs.map((n) => n.id)
         if ('initData' in authBody) {
           markNotificationsRead(authBody.initData, ids).catch(() => {})
-        } else {
+        } else if ('telegram_id' in authBody) {
           markNotificationsReadDev(authBody.telegram_id, ids).catch(() => {})
         }
 
