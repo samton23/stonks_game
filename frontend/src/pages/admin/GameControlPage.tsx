@@ -1,16 +1,27 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Gamepad2, PlayCircle, Plus, Minus, DollarSign, Send,
-  ChevronDown, Trash2, Building2
+  ChevronDown, Trash2, Building2, Play, Pause, RotateCcw, TrendingUp
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   getGameState, getEnterprises, advanceCycle,
   addEnterpriseToPlayer, removeEnterpriseFromPlayer,
-  addFactory, removeFactory, adjustMoney, notifyPlayer
+  addFactory, removeFactory, adjustMoney, notifyPlayer,
+  getTimers, startTimers, pauseTimers, resetGameTimer, resetCycleTimer,
+  getPlayerStocks, transferStock, getSettings
 } from '../../api'
-import type { GameState, Enterprise, Player } from '../../types'
+import type { GameState, Enterprise, Player, TimerState, PlayerStockInfo } from '../../types'
+
+function formatTime(seconds: number): string {
+  if (seconds <= 0) return '00:00'
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
 
 export default function GameControlPage() {
   const [state, setState] = useState<GameState | null>(null)
@@ -22,23 +33,74 @@ export default function GameControlPage() {
   const [showAddEnterprise, setShowAddEnterprise] = useState<number | null>(null)
   const [advancing, setAdvancing] = useState(false)
 
+  // Timer state
+  const [timerData, setTimerData] = useState<TimerState | null>(null)
+  const [gameRemaining, setGameRemaining] = useState(0)
+  const [cycleRemaining, setCycleRemaining] = useState(0)
+
+  // Stock state
+  const [playerStocks, setPlayerStocks] = useState<Record<number, PlayerStockInfo>>({})
+  const [stockBuyer, setStockBuyer] = useState<Record<number, string>>({})
+  const [stockPercent, setStockPercent] = useState<Record<number, string>>({})
+  const [stockPrice, setStockPrice] = useState<Record<number, string>>({})
+  const [defaultStockPrice, setDefaultStockPrice] = useState('50')
+
   const load = useCallback(async () => {
     try {
-      const [gs, ents] = await Promise.all([getGameState(), getEnterprises()])
+      const [gs, ents, settings] = await Promise.all([getGameState(), getEnterprises(), getSettings()])
       setState(gs)
       setEnterprises(ents)
+      if (settings.stock_price) setDefaultStockPrice(settings.stock_price)
     } catch (e: any) {
       toast.error(e.message)
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const loadTimers = useCallback(async () => {
+    try {
+      const t = await getTimers()
+      setTimerData(t)
+    } catch {}
+  }, [])
 
-  // Auto-refresh every 5 seconds
+  useEffect(() => { load(); loadTimers() }, [load, loadTimers])
+
   useEffect(() => {
     const i = setInterval(load, 5000)
     return () => clearInterval(i)
   }, [load])
+
+  useEffect(() => {
+    const i = setInterval(loadTimers, 3000)
+    return () => clearInterval(i)
+  }, [loadTimers])
+
+  // Countdown tick every second
+  useEffect(() => {
+    const tick = () => {
+      if (!timerData) return
+      if (timerData.timer_running) {
+        const now = Date.now()
+        setGameRemaining(timerData.game_timer_end > 0 ? Math.max(0, (timerData.game_timer_end - now) / 1000) : 0)
+        setCycleRemaining(timerData.cycle_timer_end > 0 ? Math.max(0, (timerData.cycle_timer_end - now) / 1000) : 0)
+      } else {
+        setGameRemaining(timerData.game_timer_remaining)
+        setCycleRemaining(timerData.cycle_timer_remaining)
+      }
+    }
+    tick()
+    const i = setInterval(tick, 1000)
+    return () => clearInterval(i)
+  }, [timerData])
+
+  // Load stocks when player is expanded
+  useEffect(() => {
+    if (expandedPlayer && !playerStocks[expandedPlayer]) {
+      getPlayerStocks(expandedPlayer).then(data => {
+        setPlayerStocks(prev => ({ ...prev, [expandedPlayer]: data }))
+      }).catch(() => {})
+    }
+  }, [expandedPlayer])
 
   const handleAdvanceCycle = async () => {
     setAdvancing(true)
@@ -46,11 +108,43 @@ export default function GameControlPage() {
       await advanceCycle()
       toast.success('Цикл продвинут!')
       load()
+      loadTimers()
     } catch (e: any) {
       toast.error(e.message)
     } finally {
       setAdvancing(false)
     }
+  }
+
+  const handleToggleTimers = async () => {
+    try {
+      if (timerData?.timer_running) {
+        await pauseTimers()
+        toast.success('Таймеры остановлены')
+      } else {
+        await startTimers()
+        toast.success('Таймеры запущены')
+      }
+      loadTimers()
+    } catch (e: any) { toast.error(e.message) }
+  }
+
+  const handleResetGameTimer = async () => {
+    if (!window.confirm('Сбросить таймер игры? Таймер вернётся к начальному значению.')) return
+    try {
+      await resetGameTimer()
+      toast.success('Таймер игры сброшен')
+      loadTimers()
+    } catch (e: any) { toast.error(e.message) }
+  }
+
+  const handleResetCycleTimer = async () => {
+    if (!window.confirm('Сбросить таймер цикла? Таймер вернётся к начальному значению.')) return
+    try {
+      await resetCycleTimer()
+      toast.success('Таймер цикла сброшен')
+      loadTimers()
+    } catch (e: any) { toast.error(e.message) }
   }
 
   const handleAddEnterprise = async (playerId: number, enterpriseId: number) => {
@@ -109,6 +203,23 @@ export default function GameControlPage() {
     } catch (e: any) { toast.error(e.message) }
   }
 
+  const handleTransferStock = async (targetPlayerId: number) => {
+    const buyerId = parseInt(stockBuyer[targetPlayerId] || '0')
+    const pct = parseFloat(stockPercent[targetPlayerId] || '0')
+    const price = parseFloat(stockPrice[targetPlayerId] || defaultStockPrice)
+    if (pct <= 0) { toast.error('Укажите процент'); return }
+    try {
+      await transferStock({ buyer_id: buyerId, target_player_id: targetPlayerId, percentage: pct, price_override: price })
+      toast.success('Акции переданы')
+      setStockBuyer(p => ({ ...p, [targetPlayerId]: '' }))
+      setStockPercent(p => ({ ...p, [targetPlayerId]: '' }))
+      // Reload stocks for this player
+      const data = await getPlayerStocks(targetPlayerId)
+      setPlayerStocks(prev => ({ ...prev, [targetPlayerId]: data }))
+      load()
+    } catch (e: any) { toast.error(e.message) }
+  }
+
   if (!state) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -121,6 +232,9 @@ export default function GameControlPage() {
     const owned = new Set(player.enterprises.map((e) => e.enterprise_id))
     return enterprises.filter((e) => !owned.has(e.id))
   }
+
+  const isRunning = timerData?.timer_running ?? false
+  const cycleExpired = cycleRemaining <= 0 && timerData !== null
 
   return (
     <div>
@@ -136,6 +250,69 @@ export default function GameControlPage() {
           </div>
         </div>
       </div>
+
+      {/* Timer Panel */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass rounded-2xl p-6 mb-6"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Таймеры</h3>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleToggleTimers}
+              className={`px-4 py-2 rounded-xl font-medium flex items-center gap-2 text-sm ${
+                isRunning
+                  ? 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400'
+                  : 'bg-accent-green/10 hover:bg-accent-green/20 text-accent-green'
+              }`}
+            >
+              {isRunning ? <Pause size={16} /> : <Play size={16} />}
+              {isRunning ? 'Пауза' : 'Старт'}
+            </button>
+            <button
+              onClick={handleResetGameTimer}
+              className="px-3 py-2 rounded-xl bg-dark-600 hover:bg-dark-500 text-gray-400 text-sm flex items-center gap-1.5"
+              title="Сброс таймера игры"
+            >
+              <RotateCcw size={14} />
+              Игра
+            </button>
+            <button
+              onClick={handleResetCycleTimer}
+              className="px-3 py-2 rounded-xl bg-dark-600 hover:bg-dark-500 text-gray-400 text-sm flex items-center gap-1.5"
+              title="Сброс таймера цикла"
+            >
+              <RotateCcw size={14} />
+              Цикл
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-dark-700/50 rounded-xl p-4 text-center">
+            <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Игра</div>
+            <div className={`text-4xl font-bold font-mono ${gameRemaining <= 0 ? 'text-red-500' : 'text-accent-blue'}`}>
+              {formatTime(gameRemaining)}
+            </div>
+          </div>
+          <div className={`rounded-xl p-4 text-center transition-all ${
+            cycleExpired && isRunning
+              ? 'bg-red-500/20 border-2 border-red-500 animate-pulse'
+              : 'bg-dark-700/50'
+          }`}>
+            <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Цикл</div>
+            <div className={`text-4xl font-bold font-mono ${
+              cycleExpired ? 'text-red-500' : 'text-accent-gold'
+            }`}>
+              {formatTime(cycleRemaining)}
+            </div>
+            {cycleExpired && isRunning && (
+              <div className="text-xs text-red-400 mt-1 font-semibold">ВРЕМЯ ВЫШЛО!</div>
+            )}
+          </div>
+        </div>
+      </motion.div>
 
       {/* Cycle Control */}
       <motion.div
@@ -172,6 +349,7 @@ export default function GameControlPage() {
         <AnimatePresence>
           {state.players.map((player, i) => {
             const isExpanded = expandedPlayer === player.id
+            const stocks = playerStocks[player.id]
             return (
               <motion.div
                 key={player.id}
@@ -249,8 +427,6 @@ export default function GameControlPage() {
                                 <Plus size={14} />
                                 Добавить
                               </button>
-
-                              {/* Add Enterprise Dropdown */}
                               <AnimatePresence>
                                 {showAddEnterprise === player.id && (
                                   <motion.div
@@ -296,7 +472,6 @@ export default function GameControlPage() {
                                       </div>
                                     </div>
                                   </div>
-
                                   <div className="flex items-center gap-4">
                                     <div className="flex items-center gap-2">
                                       <span className="text-xs text-gray-500">🏗 Заводы:</span>
@@ -331,6 +506,73 @@ export default function GameControlPage() {
                               <Building2 size={24} className="mx-auto mb-2 opacity-50" />
                               <p className="text-sm">Нет предприятий</p>
                             </div>
+                          )}
+                        </div>
+
+                        {/* Stocks Section */}
+                        <div className="bg-dark-700/30 rounded-xl p-4">
+                          <h4 className="text-sm font-semibold text-gray-400 mb-3 flex items-center gap-2">
+                            <TrendingUp size={14} />
+                            Акции
+                          </h4>
+                          {stocks ? (
+                            <div className="space-y-3">
+                              <div className="text-sm">
+                                <span className="text-gray-500">Свои акции: </span>
+                                <span className="font-bold text-accent-blue">{stocks.own_percentage}%</span>
+                              </div>
+                              {stocks.holders && stocks.holders.length > 0 && (
+                                <div className="text-sm space-y-1">
+                                  <span className="text-gray-500">Владельцы:</span>
+                                  {stocks.holders.map((h, idx) => (
+                                    <div key={idx} className="ml-3 text-gray-300">
+                                      {h.owner_name}: {h.percentage}%
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {/* Transfer form */}
+                              <div className="border-t border-white/5 pt-3 mt-3">
+                                <div className="text-xs text-gray-500 mb-2">Передать акции</div>
+                                <div className="flex gap-2 flex-wrap">
+                                  <select
+                                    value={stockBuyer[player.id] || ''}
+                                    onChange={e => setStockBuyer(p => ({ ...p, [player.id]: e.target.value }))}
+                                    className="flex-1 min-w-[140px] bg-dark-600 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                                  >
+                                    <option value="">Покупатель</option>
+                                    <option value="0">Банк</option>
+                                    {state.players.filter(p => p.id !== player.id).map(p => (
+                                      <option key={p.id} value={String(p.id)}>{p.name}</option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    type="number"
+                                    min="10"
+                                    step="10"
+                                    placeholder="%"
+                                    value={stockPercent[player.id] || ''}
+                                    onChange={e => setStockPercent(p => ({ ...p, [player.id]: e.target.value }))}
+                                    className="w-20 bg-dark-600 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                                  />
+                                  <input
+                                    type="number"
+                                    placeholder="Цена/10%"
+                                    value={stockPrice[player.id] || defaultStockPrice}
+                                    onChange={e => setStockPrice(p => ({ ...p, [player.id]: e.target.value }))}
+                                    className="w-28 bg-dark-600 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                                  />
+                                  <button
+                                    onClick={() => handleTransferStock(player.id)}
+                                    className="px-4 py-2 bg-accent-purple/10 hover:bg-accent-purple/20 text-accent-purple rounded-lg text-sm font-medium"
+                                  >
+                                    Передать
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-500">Загрузка...</div>
                           )}
                         </div>
 

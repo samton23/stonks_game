@@ -19,6 +19,7 @@ class PlayerEnterpriseOut(BaseModel):
     enterprise_name: str
     enterprise_emoji: str
     profit: float
+    profit_cycle_interval: int = 1
     factory_count: int
     factory_profit_percent: float
     effective_profit: float
@@ -98,7 +99,57 @@ class FactoryAdjust(BaseModel):
 class DashboardPlayer(BaseModel):
     id: int
     name: str
-    money: float
-    revenue: float
+    score: float
     enterprises_count: int
     factories_count: int
+
+
+# --- Stocks ---
+class StockTransfer(BaseModel):
+    buyer_id: int  # 0 = bank
+    target_player_id: int
+    percentage: float  # e.g. 10, 20
+    price_override: Optional[float] = None  # None = use stock_price setting
+
+
+class PlayerStockOut(BaseModel):
+    id: int
+    owner_id: int
+    owner_name: str
+    target_player_id: int
+    target_player_name: str
+    percentage: float
+
+    class Config:
+        from_attributes = True
+
+
+# --- Events ---
+class EventCreate(BaseModel):
+    name: str
+    description: str = ""
+    affected_enterprises: str = "[]"  # JSON string
+    profit_modifier: float = 1.0
+    duration_cycles: int = 1
+
+
+class EventUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    affected_enterprises: Optional[str] = None
+    profit_modifier: Optional[float] = None
+    duration_cycles: Optional[int] = None
+
+
+class EventOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    affected_enterprises: str
+    profit_modifier: float
+    duration_cycles: int
+    remaining_cycles: int
+    is_active: bool
+
+    class Config:
+        from_attributes = True

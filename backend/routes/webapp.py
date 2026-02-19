@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, unquote
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Player, Enterprise, GameSetting, Notification
+from models import Player, Enterprise, GameSetting, Notification, PlayerStock
 
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
 
@@ -141,6 +141,51 @@ def get_prices(db: Session = Depends(get_db)):
         "factory_price": e.factory_price,
         "factory_profit_percent": e.factory_profit_percent,
     } for e in enterprises]
+
+
+@router.post("/stocks")
+def get_player_stocks(body: dict, db: Session = Depends(get_db)):
+    """Return stock data for the authenticated player."""
+    player = _resolve_player(body, db)
+
+    # Own stocks
+    self_stock = db.query(PlayerStock).filter(
+        PlayerStock.owner_id == player.id,
+        PlayerStock.target_player_id == player.id,
+    ).first()
+    own_percentage = self_stock.percentage if self_stock else 100
+
+    # Stocks owned in other players
+    owned_in_others = db.query(PlayerStock).filter(
+        PlayerStock.owner_id == player.id,
+        PlayerStock.target_player_id != player.id,
+        PlayerStock.percentage > 0,
+    ).all()
+
+    owned_list = []
+    total_stock_income = 0.0
+    for o in owned_in_others:
+        target = db.query(Player).filter(Player.id == o.target_player_id).first()
+        target_revenue = 0.0
+        if target:
+            for pe in target.enterprises:
+                ent = pe.enterprise
+                effective = ent.profit * (1 + pe.factory_count * ent.factory_profit_percent / 100)
+                target_revenue += effective
+        stock_income = target_revenue * (o.percentage / 100)
+        total_stock_income += stock_income
+        owned_list.append({
+            "target_player_id": o.target_player_id,
+            "target_player_name": target.name if target else "Неизвестно",
+            "percentage": o.percentage,
+            "expected_income": round(stock_income, 2),
+        })
+
+    return {
+        "own_percentage": own_percentage,
+        "owned_in_others": owned_list,
+        "total_stock_income": round(total_stock_income, 2),
+    }
 
 
 @router.post("/notifications")

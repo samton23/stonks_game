@@ -68,3 +68,29 @@ class Notification(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     player = relationship("Player")
+
+
+class PlayerStock(Base):
+    __tablename__ = "player_stocks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
+    target_player_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
+    percentage = Column(Float, default=0)  # 10, 20, 30...
+
+    owner = relationship("Player", foreign_keys=[owner_id], backref="owned_stocks")
+    target_player = relationship("Player", foreign_keys=[target_player_id], backref="stocks_issued")
+
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, default="")
+    affected_enterprises = Column(Text, default="[]")  # JSON: list of enterprise IDs or "all"
+    profit_modifier = Column(Float, default=1.0)  # 0.5 = -50%, 1.5 = +50%, 2.0 = x2
+    duration_cycles = Column(Integer, default=1)
+    remaining_cycles = Column(Integer, default=0)
+    is_active = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

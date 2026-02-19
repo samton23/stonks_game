@@ -215,22 +215,14 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="flex items-center gap-8">
-                      {/* Balance */}
+                      {/* Score */}
                       <div className="text-right">
-                        <div className="text-xs text-gray-500 mb-0.5">Баланс</div>
-                        <div className="font-mono font-bold text-lg text-white">
-                          $<AnimatedNumber value={Math.round(player.money)} />
-                        </div>
-                      </div>
-
-                      {/* Revenue */}
-                      <div className="text-right">
-                        <div className="text-xs text-gray-500 mb-0.5">Доход</div>
+                        <div className="text-xs text-gray-500 mb-0.5">Счёт</div>
                         <div className={`font-mono font-bold text-lg flex items-center gap-1.5 ${
                           index === 0 ? 'text-yellow-300' : 'text-accent-green'
                         }`}>
                           <TrendingUp size={16} />
-                          $<AnimatedNumber value={Math.round(player.revenue)} />
+                          $<AnimatedNumber value={Math.round(player.score)} />
                         </div>
                       </div>
                     </div>

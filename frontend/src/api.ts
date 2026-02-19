@@ -62,6 +62,32 @@ export const notifyPlayer = (playerId: number, message: string) =>
   });
 export const resetGame = () => request('/game/reset', { method: 'POST' });
 
+// Timers
+export const getTimers = () => request('/game/timers');
+export const startTimers = () => request('/game/timers/start', { method: 'POST' });
+export const pauseTimers = () => request('/game/timers/pause', { method: 'POST' });
+export const resetGameTimer = () => request('/game/timers/reset-game', { method: 'POST' });
+export const resetCycleTimer = () => request('/game/timers/reset-cycle', { method: 'POST' });
+
+// Stocks
+export const getStocks = () => request('/stocks');
+export const getPlayerStocks = (playerId: number) => request(`/stocks/player/${playerId}`);
+export const transferStock = (data: { buyer_id: number; target_player_id: number; percentage: number; price_override?: number }) =>
+  request('/stocks/transfer', { method: 'POST', body: JSON.stringify(data) });
+
+// Events
+export const getEvents = () => request('/events');
+export const createEvent = (data: any) =>
+  request('/events', { method: 'POST', body: JSON.stringify(data) });
+export const updateEvent = (id: number, data: any) =>
+  request(`/events/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const deleteEvent = (id: number) =>
+  request(`/events/${id}`, { method: 'DELETE' });
+export const activateEvent = (id: number) =>
+  request(`/events/${id}/activate`, { method: 'POST' });
+export const deactivateEvent = (id: number) =>
+  request(`/events/${id}/deactivate`, { method: 'POST' });
+
 // Dashboard
 export const getDashboard = () => request('/game/dashboard');
 
@@ -72,6 +98,10 @@ export const webappAuthDev = (telegramId: number) =>
   request('/webapp/auth', { method: 'POST', body: JSON.stringify({ telegram_id: telegramId }) });
 export const getWebappRules = () => request('/webapp/rules');
 export const getWebappPrices = () => request('/webapp/prices');
+export const getWebappStocks = (initData: string) =>
+  request('/webapp/stocks', { method: 'POST', body: JSON.stringify({ initData }) });
+export const getWebappStocksDev = (telegramId: number) =>
+  request('/webapp/stocks', { method: 'POST', body: JSON.stringify({ telegram_id: telegramId }) });
 
 // WebApp Notifications
 export const getWebappNotifications = (initData: string) =>
