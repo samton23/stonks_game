@@ -4,7 +4,7 @@ from typing import Optional, List
 
 # --- Players ---
 class PlayerCreate(BaseModel):
-    telegram_id: int
+    telegram_id: Optional[int] = None
     name: str
 
 
@@ -30,7 +30,7 @@ class PlayerEnterpriseOut(BaseModel):
 
 class PlayerOut(BaseModel):
     id: int
-    telegram_id: int
+    telegram_id: Optional[int] = None
     name: str
     money: float
     enterprises: List[PlayerEnterpriseOut] = []
@@ -100,16 +100,19 @@ class DashboardPlayer(BaseModel):
     id: int
     name: str
     score: float
+    money: float = 0
+    revenue: float = 0
     enterprises_count: int
     factories_count: int
 
 
 # --- Stocks ---
 class StockTransfer(BaseModel):
-    buyer_id: int  # 0 = bank
-    target_player_id: int
+    from_id: int  # who gives (player id or 0=bank)
+    to_id: int  # who receives (player id or 0=bank)
+    target_player_id: int  # whose stocks
     percentage: float  # e.g. 10, 20
-    price_override: Optional[float] = None  # None = use stock_price setting
+    price_per_share: Optional[float] = None  # price per 10% block
 
 
 class PlayerStockOut(BaseModel):
@@ -153,3 +156,16 @@ class EventOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# --- Browser Join ---
+class BrowserJoinRequest(BaseModel):
+    name: str
+    room_code: str
+
+
+class BrowserJoinResponse(BaseModel):
+    token: str
+    player_id: int
+    name: str
+    money: float

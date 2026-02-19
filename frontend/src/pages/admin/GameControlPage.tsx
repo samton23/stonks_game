@@ -2,17 +2,16 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Gamepad2, PlayCircle, Plus, Minus, DollarSign, Send,
-  ChevronDown, Trash2, Building2, Play, Pause, RotateCcw, TrendingUp
+  ChevronDown, Trash2, Building2, Play, Pause, RotateCcw, Flag
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
-  getGameState, getEnterprises, advanceCycle,
+  getGameState, getEnterprises, advanceCycle, finishGame,
   addEnterpriseToPlayer, removeEnterpriseFromPlayer,
   addFactory, removeFactory, adjustMoney, notifyPlayer,
   getTimers, startTimers, pauseTimers, resetGameTimer, resetCycleTimer,
-  getPlayerStocks, transferStock, getSettings
 } from '../../api'
-import type { GameState, Enterprise, Player, TimerState, PlayerStockInfo } from '../../types'
+import type { GameState, Enterprise, Player, TimerState } from '../../types'
 
 function formatTime(seconds: number): string {
   if (seconds <= 0) return '00:00'
@@ -38,19 +37,11 @@ export default function GameControlPage() {
   const [gameRemaining, setGameRemaining] = useState(0)
   const [cycleRemaining, setCycleRemaining] = useState(0)
 
-  // Stock state
-  const [playerStocks, setPlayerStocks] = useState<Record<number, PlayerStockInfo>>({})
-  const [stockBuyer, setStockBuyer] = useState<Record<number, string>>({})
-  const [stockPercent, setStockPercent] = useState<Record<number, string>>({})
-  const [stockPrice, setStockPrice] = useState<Record<number, string>>({})
-  const [defaultStockPrice, setDefaultStockPrice] = useState('50')
-
   const load = useCallback(async () => {
     try {
-      const [gs, ents, settings] = await Promise.all([getGameState(), getEnterprises(), getSettings()])
+      const [gs, ents] = await Promise.all([getGameState(), getEnterprises()])
       setState(gs)
       setEnterprises(ents)
-      if (settings.stock_price) setDefaultStockPrice(settings.stock_price)
     } catch (e: any) {
       toast.error(e.message)
     }
@@ -93,20 +84,26 @@ export default function GameControlPage() {
     return () => clearInterval(i)
   }, [timerData])
 
-  // Load stocks when player is expanded
-  useEffect(() => {
-    if (expandedPlayer && !playerStocks[expandedPlayer]) {
-      getPlayerStocks(expandedPlayer).then(data => {
-        setPlayerStocks(prev => ({ ...prev, [expandedPlayer]: data }))
-      }).catch(() => {})
-    }
-  }, [expandedPlayer])
-
   const handleAdvanceCycle = async () => {
     setAdvancing(true)
     try {
       await advanceCycle()
       toast.success('Цикл продвинут!')
+      load()
+      loadTimers()
+    } catch (e: any) {
+      toast.error(e.message)
+    } finally {
+      setAdvancing(false)
+    }
+  }
+
+  const handleFinishGame = async () => {
+    if (!window.confirm('Завершить игру? Будет произведён финальный расчёт и акции будут погашены.')) return
+    setAdvancing(true)
+    try {
+      await finishGame()
+      toast.success('Игра завершена! Итоги на дашборде.')
       load()
       loadTimers()
     } catch (e: any) {
@@ -200,23 +197,6 @@ export default function GameControlPage() {
       await notifyPlayer(playerId, msg)
       toast.success('Уведомление отправлено')
       setNotifyInputs((p) => ({ ...p, [playerId]: '' }))
-    } catch (e: any) { toast.error(e.message) }
-  }
-
-  const handleTransferStock = async (targetPlayerId: number) => {
-    const buyerId = parseInt(stockBuyer[targetPlayerId] || '0')
-    const pct = parseFloat(stockPercent[targetPlayerId] || '0')
-    const price = parseFloat(stockPrice[targetPlayerId] || defaultStockPrice)
-    if (pct <= 0) { toast.error('Укажите процент'); return }
-    try {
-      await transferStock({ buyer_id: buyerId, target_player_id: targetPlayerId, percentage: pct, price_override: price })
-      toast.success('Акции переданы')
-      setStockBuyer(p => ({ ...p, [targetPlayerId]: '' }))
-      setStockPercent(p => ({ ...p, [targetPlayerId]: '' }))
-      // Reload stocks for this player
-      const data = await getPlayerStocks(targetPlayerId)
-      setPlayerStocks(prev => ({ ...prev, [targetPlayerId]: data }))
-      load()
     } catch (e: any) { toast.error(e.message) }
   }
 
@@ -324,24 +304,49 @@ export default function GameControlPage() {
           <div className="text-sm text-gray-500 uppercase tracking-wider mb-1">Текущий цикл</div>
           <div className="text-5xl font-bold font-mono text-gradient from-accent-green to-accent-blue">
             {state.current_cycle}
+            <span className="text-lg text-gray-500 font-normal ml-2">/ {state.total_cycles}</span>
           </div>
-        </div>
-        <button
-          onClick={handleAdvanceCycle}
-          disabled={advancing}
-          className={`px-8 py-4 rounded-xl font-semibold text-lg flex items-center gap-3 ${
-            advancing
-              ? 'bg-dark-600 text-gray-500 cursor-wait'
-              : 'bg-gradient-to-r from-accent-green to-emerald-600 hover:from-emerald-600 hover:to-accent-green text-white shadow-lg shadow-accent-green/20'
-          }`}
-        >
-          {advancing ? (
-            <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          ) : (
-            <PlayCircle size={24} />
+          {state.game_finished && (
+            <div className="text-sm text-accent-gold font-semibold mt-1">🏁 Игра завершена</div>
           )}
-          {advancing ? 'Обработка...' : 'Следующий цикл'}
-        </button>
+        </div>
+        {!state.game_finished && (
+          state.current_cycle >= state.total_cycles ? (
+            <button
+              onClick={handleFinishGame}
+              disabled={advancing}
+              className={`px-8 py-4 rounded-xl font-semibold text-lg flex items-center gap-3 ${
+                advancing
+                  ? 'bg-dark-600 text-gray-500 cursor-wait'
+                  : 'bg-gradient-to-r from-accent-gold to-amber-600 hover:from-amber-600 hover:to-accent-gold text-white shadow-lg shadow-accent-gold/20'
+              }`}
+            >
+              {advancing ? (
+                <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Flag size={24} />
+              )}
+              {advancing ? 'Обработка...' : 'Завершить игру'}
+            </button>
+          ) : (
+            <button
+              onClick={handleAdvanceCycle}
+              disabled={advancing}
+              className={`px-8 py-4 rounded-xl font-semibold text-lg flex items-center gap-3 ${
+                advancing
+                  ? 'bg-dark-600 text-gray-500 cursor-wait'
+                  : 'bg-gradient-to-r from-accent-green to-emerald-600 hover:from-emerald-600 hover:to-accent-green text-white shadow-lg shadow-accent-green/20'
+              }`}
+            >
+              {advancing ? (
+                <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <PlayCircle size={24} />
+              )}
+              {advancing ? 'Обработка...' : 'Следующий цикл'}
+            </button>
+          )
+        )}
       </motion.div>
 
       {/* Players */}
@@ -349,7 +354,6 @@ export default function GameControlPage() {
         <AnimatePresence>
           {state.players.map((player, i) => {
             const isExpanded = expandedPlayer === player.id
-            const stocks = playerStocks[player.id]
             return (
               <motion.div
                 key={player.id}
@@ -506,73 +510,6 @@ export default function GameControlPage() {
                               <Building2 size={24} className="mx-auto mb-2 opacity-50" />
                               <p className="text-sm">Нет предприятий</p>
                             </div>
-                          )}
-                        </div>
-
-                        {/* Stocks Section */}
-                        <div className="bg-dark-700/30 rounded-xl p-4">
-                          <h4 className="text-sm font-semibold text-gray-400 mb-3 flex items-center gap-2">
-                            <TrendingUp size={14} />
-                            Акции
-                          </h4>
-                          {stocks ? (
-                            <div className="space-y-3">
-                              <div className="text-sm">
-                                <span className="text-gray-500">Свои акции: </span>
-                                <span className="font-bold text-accent-blue">{stocks.own_percentage}%</span>
-                              </div>
-                              {stocks.holders && stocks.holders.length > 0 && (
-                                <div className="text-sm space-y-1">
-                                  <span className="text-gray-500">Владельцы:</span>
-                                  {stocks.holders.map((h, idx) => (
-                                    <div key={idx} className="ml-3 text-gray-300">
-                                      {h.owner_name}: {h.percentage}%
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              {/* Transfer form */}
-                              <div className="border-t border-white/5 pt-3 mt-3">
-                                <div className="text-xs text-gray-500 mb-2">Передать акции</div>
-                                <div className="flex gap-2 flex-wrap">
-                                  <select
-                                    value={stockBuyer[player.id] || ''}
-                                    onChange={e => setStockBuyer(p => ({ ...p, [player.id]: e.target.value }))}
-                                    className="flex-1 min-w-[140px] bg-dark-600 border border-white/10 rounded-lg px-3 py-2 text-sm"
-                                  >
-                                    <option value="">Покупатель</option>
-                                    <option value="0">Банк</option>
-                                    {state.players.filter(p => p.id !== player.id).map(p => (
-                                      <option key={p.id} value={String(p.id)}>{p.name}</option>
-                                    ))}
-                                  </select>
-                                  <input
-                                    type="number"
-                                    min="10"
-                                    step="10"
-                                    placeholder="%"
-                                    value={stockPercent[player.id] || ''}
-                                    onChange={e => setStockPercent(p => ({ ...p, [player.id]: e.target.value }))}
-                                    className="w-20 bg-dark-600 border border-white/10 rounded-lg px-3 py-2 text-sm"
-                                  />
-                                  <input
-                                    type="number"
-                                    placeholder="Цена/10%"
-                                    value={stockPrice[player.id] || defaultStockPrice}
-                                    onChange={e => setStockPrice(p => ({ ...p, [player.id]: e.target.value }))}
-                                    className="w-28 bg-dark-600 border border-white/10 rounded-lg px-3 py-2 text-sm"
-                                  />
-                                  <button
-                                    onClick={() => handleTransferStock(player.id)}
-                                    className="px-4 py-2 bg-accent-purple/10 hover:bg-accent-purple/20 text-accent-purple rounded-lg text-sm font-medium"
-                                  >
-                                    Передать
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-sm text-gray-500">Загрузка...</div>
                           )}
                         </div>
 

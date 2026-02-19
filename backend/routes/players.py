@@ -28,7 +28,7 @@ def _build_player_out(player: Player) -> dict:
         ))
     return {
         "id": player.id,
-        "telegram_id": player.telegram_id,
+        "telegram_id": player.telegram_id or 0,
         "name": player.name,
         "money": player.money,
         "enterprises": enterprises_out,
@@ -44,9 +44,10 @@ def list_players(db: Session = Depends(get_db)):
 
 @router.post("", response_model=PlayerOut)
 def create_player(data: PlayerCreate, db: Session = Depends(get_db)):
-    existing = db.query(Player).filter(Player.telegram_id == data.telegram_id).first()
-    if existing:
-        raise HTTPException(400, "Player with this Telegram ID already exists")
+    if data.telegram_id is not None:
+        existing = db.query(Player).filter(Player.telegram_id == data.telegram_id).first()
+        if existing:
+            raise HTTPException(400, "Player with this Telegram ID already exists")
     # Get initial budget from settings
     budget_setting = db.query(GameSetting).filter(GameSetting.key == "budget").first()
     initial_budget = float(budget_setting.value) if budget_setting else 10000

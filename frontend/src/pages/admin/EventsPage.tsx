@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Zap, Plus, Trash2, Save, X, Play, Pause, AlertCircle } from 'lucide-react'
+import { Zap, Plus, Trash2, Save, X, Play, Pause, AlertCircle, Shuffle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   getEvents, getEnterprises, createEvent, updateEvent, deleteEvent,
-  activateEvent, deactivateEvent,
+  activateEvent, deactivateEvent, randomEvent,
 } from '../../api'
 import type { GameEvent, Enterprise } from '../../types'
 
@@ -84,6 +84,14 @@ export default function EventsPage() {
     } catch (e: any) { toast.error(e.message) }
   }
 
+  const handleRandomEvent = async () => {
+    try {
+      const ev = await randomEvent()
+      toast.success(`Активировано случайное событие: ${ev.name}`)
+      load()
+    } catch (e: any) { toast.error(e.message) }
+  }
+
   const handleToggleActive = async (ev: GameEvent) => {
     try {
       if (ev.is_active) {
@@ -137,13 +145,22 @@ export default function EventsPage() {
             <p className="text-gray-500 text-sm">Игровые события, влияющие на прибыль</p>
           </div>
         </div>
-        <button
-          onClick={() => { resetForm(); setShowForm(true) }}
-          className="px-5 py-2.5 bg-yellow-500 hover:bg-yellow-400 text-dark-900 rounded-lg font-medium flex items-center gap-2"
-        >
-          <Plus size={18} />
-          Создать событие
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRandomEvent}
+            className="px-5 py-2.5 bg-accent-purple/10 hover:bg-accent-purple/20 text-accent-purple border border-accent-purple/20 rounded-lg font-medium flex items-center gap-2"
+          >
+            <Shuffle size={18} />
+            Случайное
+          </button>
+          <button
+            onClick={() => { resetForm(); setShowForm(true) }}
+            className="px-5 py-2.5 bg-yellow-500 hover:bg-yellow-400 text-dark-900 rounded-lg font-medium flex items-center gap-2"
+          >
+            <Plus size={18} />
+            Создать событие
+          </button>
+        </div>
       </div>
 
       {/* Form */}

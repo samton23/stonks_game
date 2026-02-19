@@ -121,9 +121,13 @@ def _build_player_detail(player: Player) -> dict:
 @router.get("/state")
 def get_game_state(db: Session = Depends(get_db)):
     current_cycle = int(_get_setting(db, "current_cycle", "0"))
+    total_cycles = int(_get_setting(db, "total_cycles", "12"))
+    game_finished = _get_setting(db, "game_finished", "false") == "true"
     players = db.query(Player).all()
     return {
         "current_cycle": current_cycle,
+        "total_cycles": total_cycles,
+        "game_finished": game_finished,
         "players": [_build_player_detail(p) for p in players],
     }
 
@@ -227,12 +231,26 @@ def reset_cycle_timer(db: Session = Depends(get_db)):
     return {"ok": True}
 
 
+@router.post("/timers/set-duration")
+def set_timer_duration(data: dict, db: Session = Depends(get_db)):
+    """Set timer durations. Accepts game_timer_duration and/or cycle_timer_duration in seconds."""
+    if "game_timer_duration" in data:
+        val = max(60, int(data["game_timer_duration"]))
+        _set_setting(db, "game_timer_duration", str(val))
+    if "cycle_timer_duration" in data:
+        val = max(10, int(data["cycle_timer_duration"]))
+        _set_setting(db, "cycle_timer_duration", str(val))
+    db.commit()
+    return {"ok": True}
+
+
 # ──────────────────────────────────────────────
 #  CYCLE MANAGEMENT
 # ──────────────────────────────────────────────
 
 @router.post("/cycle/advance")
 async def advance_cycle(db: Session = Depends(get_db)):
+    """Advance to next cycle. Accrues enterprise income directly to player (no stock split per cycle)."""
     setting = db.query(GameSetting).filter(GameSetting.key == "current_cycle").first()
     if not setting:
         setting = GameSetting(key="current_cycle", value="0")
@@ -247,12 +265,11 @@ async def advance_cycle(db: Session = Depends(get_db)):
     # Get active events
     active_events = db.query(Event).filter(Event.is_active == True, Event.remaining_cycles > 0).all()
 
-    # Calculate gross revenue for each player (before stock distribution)
+    # Calculate and distribute enterprise income (goes directly to player, stocks settle at end)
     players = db.query(Player).all()
-    player_gross_revenues = {}
 
     for player in players:
-        gross_revenue = 0.0
+        income = 0.0
         details = []
         for pe in player.enterprises:
             ent = pe.enterprise
@@ -260,58 +277,19 @@ async def advance_cycle(db: Session = Depends(get_db)):
                 base_profit = ent.profit * (1 + pe.factory_count * ent.factory_profit_percent / 100)
                 event_mod = _get_event_modifier(ent.id, active_events)
                 effective = base_profit * event_mod
-                gross_revenue += effective
+                income += effective
                 mod_text = f" (x{event_mod:.1f})" if event_mod != 1.0 else ""
                 details.append(f"{ent.emoji} {ent.name}: +${effective:,.0f}{mod_text}")
 
-        player_gross_revenues[player.id] = {
-            "gross": gross_revenue,
-            "details": details,
-        }
+        player.money = round(player.money + income, 2)
 
-    # Distribute revenue according to stock ownership
-    for player in players:
-        gross = player_gross_revenues[player.id]["gross"]
-        details = player_gross_revenues[player.id]["details"]
-
-        if gross > 0:
-            # Get all stock holders for this player
-            stock_holders = db.query(PlayerStock).filter(
-                PlayerStock.target_player_id == player.id,
-                PlayerStock.percentage > 0,
-            ).all()
-
-            for stock in stock_holders:
-                share = gross * (stock.percentage / 100)
-                if share > 0:
-                    owner = db.query(Player).filter(Player.id == stock.owner_id).first()
-                    if owner:
-                        owner.money = round(owner.money + share, 2)
-
-                        if stock.owner_id == player.id:
-                            # Self-income notification (existing pattern)
-                            pass
-                        else:
-                            # Stock income notification for external holder
-                            _create_notification(
-                                db, stock.owner_id, "stock", "📊",
-                                f"Доход от акций (цикл {current_cycle})",
-                                f"+${share:,.0f} от акций {player.name} ({stock.percentage}%)",
-                            )
-
-            # Notification for the player about their own cycle income
-            self_stock = db.query(PlayerStock).filter(
-                PlayerStock.owner_id == player.id,
-                PlayerStock.target_player_id == player.id,
-            ).first()
-            own_pct = self_stock.percentage if self_stock else 100
-            own_income = gross * (own_pct / 100)
-
-            detail_text = "\n".join(details)
+        # Notification
+        detail_text = "\n".join(details)
+        if income > 0:
             _create_notification(
                 db, player.id, "cycle", "🔄",
                 f"Цикл {current_cycle}",
-                f"+${own_income:,.0f} дохода ({own_pct}% своих акций)\n{detail_text}",
+                f"+${income:,.0f} дохода\n{detail_text}",
             )
         else:
             _create_notification(
@@ -320,9 +298,7 @@ async def advance_cycle(db: Session = Depends(get_db)):
                 "Нет дохода в этом цикле",
             )
 
-        # Telegram message
-        gross = player_gross_revenues[player.id]["gross"]
-        details = player_gross_revenues[player.id]["details"]
+        # Telegram
         msg_lines = [f"🔄  <b>Цикл {current_cycle}</b>", "━━━━━━━━━━━━━━━━━━━", ""]
         if details:
             msg_lines.append("📈  Доход за цикл:")
@@ -330,19 +306,13 @@ async def advance_cycle(db: Session = Depends(get_db)):
             for d in details:
                 msg_lines.append(f"    {d}")
             msg_lines.append("")
-
-            self_stock = db.query(PlayerStock).filter(
-                PlayerStock.owner_id == player.id,
-                PlayerStock.target_player_id == player.id,
-            ).first()
-            own_pct = self_stock.percentage if self_stock else 100
-            own_income = gross * (own_pct / 100)
-            msg_lines.append(f"💰  <b>+${own_income:,.0f}</b> (ваши {own_pct}%)")
+            msg_lines.append(f"💰  <b>+${income:,.0f}</b>")
         else:
             msg_lines.append("📊  Нет дохода в этом цикле")
         msg_lines.append("")
         msg_lines.append(f"💵  Баланс:  <b>${player.money:,.0f}</b>")
-        await send_telegram_message(player.telegram_id, "\n".join(msg_lines))
+        if player.telegram_id:
+            await send_telegram_message(player.telegram_id, "\n".join(msg_lines))
 
     # Decrement event remaining_cycles
     for event in active_events:
@@ -360,7 +330,6 @@ async def advance_cycle(db: Session = Depends(get_db)):
     else:
         _set_setting(db, "cycle_timer_remaining", str(cycle_duration))
         _set_setting(db, "cycle_timer_end", "0")
-        # Also start timers when advancing cycle
         now_ms = time.time() * 1000
         game_remaining = float(_get_setting(db, "game_timer_remaining", "3600"))
         if game_remaining > 0:
@@ -372,6 +341,97 @@ async def advance_cycle(db: Session = Depends(get_db)):
 
     db.commit()
     return {"ok": True, "current_cycle": current_cycle}
+
+
+@router.post("/finish")
+async def finish_game(db: Session = Depends(get_db)):
+    """
+    Final tick: enterprises with cycle_interval > 1 pay proportional income.
+    Then stocks are settled: each stock holder gets % of target player's final budget.
+    """
+    current_cycle = int(_get_setting(db, "current_cycle", "0"))
+
+    # Get active events
+    active_events = db.query(Event).filter(Event.is_active == True, Event.remaining_cycles > 0).all()
+
+    players = db.query(Player).all()
+
+    # Step 1: Proportional payout for enterprises with interval > 1
+    for player in players:
+        bonus = 0.0
+        details = []
+        for pe in player.enterprises:
+            ent = pe.enterprise
+            if ent.profit_cycle_interval > 1:
+                # How many cycles since last payout?
+                cycles_since_last = current_cycle % ent.profit_cycle_interval
+                if cycles_since_last > 0:
+                    base_profit = ent.profit * (1 + pe.factory_count * ent.factory_profit_percent / 100)
+                    event_mod = _get_event_modifier(ent.id, active_events)
+                    proportional = base_profit * event_mod * (cycles_since_last / ent.profit_cycle_interval)
+                    bonus += proportional
+                    details.append(
+                        f"{ent.emoji} {ent.name}: +${proportional:,.0f} "
+                        f"({cycles_since_last}/{ent.profit_cycle_interval} цикла)"
+                    )
+        if bonus > 0:
+            player.money = round(player.money + bonus, 2)
+            _create_notification(
+                db, player.id, "cycle", "🏁",
+                "Финальная выплата",
+                f"+${bonus:,.0f} (пропорциональная)\n" + "\n".join(details),
+            )
+
+    db.commit()
+
+    # Step 2: Stock settlement — stocks = % of target player's final BUDGET (money only)
+    # We record final budgets first
+    final_budgets = {p.id: p.money for p in players}
+
+    # Calculate stock bonuses
+    stock_bonuses = {p.id: 0.0 for p in players}
+    for player in players:
+        # Stocks this player owns in OTHER players
+        owned_stocks = db.query(PlayerStock).filter(
+            PlayerStock.owner_id == player.id,
+            PlayerStock.target_player_id != player.id,
+            PlayerStock.percentage > 0,
+        ).all()
+        for stock in owned_stocks:
+            target_budget = final_budgets.get(stock.target_player_id, 0)
+            stock_value = target_budget * (stock.percentage / 100)
+            stock_bonuses[player.id] += stock_value
+
+    # Apply stock bonuses
+    for player in players:
+        bonus = round(stock_bonuses[player.id], 2)
+        if bonus > 0:
+            player.money = round(player.money + bonus, 2)
+            _create_notification(
+                db, player.id, "stock", "📊",
+                "Расчёт по акциям",
+                f"+${bonus:,.0f} от акций других игроков",
+            )
+
+    # Mark game as finished
+    _set_setting(db, "game_finished", "true")
+    # Stop timers
+    _set_setting(db, "timer_running", "false")
+
+    db.commit()
+
+    # Telegram notifications
+    for player in players:
+        msg = (
+            f"🏁  <b>ИГРА ЗАВЕРШЕНА!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n\n"
+            f"💰  Итоговый бюджет:  <b>${player.money:,.0f}</b>\n"
+            f"📊  Бонус от акций:  +${stock_bonuses[player.id]:,.0f}"
+        )
+        if player.telegram_id:
+            await send_telegram_message(player.telegram_id, msg)
+
+    return {"ok": True, "game_finished": True}
 
 
 @router.post("/cycle/set")
@@ -533,7 +593,8 @@ async def adjust_money(player_id: int, data: MoneyAdjust, db: Session = Depends(
         msg_lines.append(f"📝  {data.reason}")
     msg_lines.append("")
     msg_lines.append(f"💵  Новый баланс:  <b>${player.money:,.0f}</b>")
-    await send_telegram_message(player.telegram_id, "\n".join(msg_lines))
+    if player.telegram_id:
+        await send_telegram_message(player.telegram_id, "\n".join(msg_lines))
 
     db.commit()
     return {"ok": True, "money": player.money}
@@ -547,8 +608,9 @@ async def notify_player(player_id: int, data: SendNotification, db: Session = De
 
     _create_notification(db, player_id, "message", "📢", "Сообщение от организатора", data.message)
 
-    msg = f"📢  <b>Уведомление</b>\n━━━━━━━━━━━━━━━━━━━\n\n{data.message}"
-    await send_telegram_message(player.telegram_id, msg)
+    if player.telegram_id:
+        msg = f"📢  <b>Уведомление</b>\n━━━━━━━━━━━━━━━━━━━\n\n{data.message}"
+        await send_telegram_message(player.telegram_id, msg)
 
     db.commit()
     return {"ok": True}
@@ -561,23 +623,45 @@ async def notify_player(player_id: int, data: SendNotification, db: Session = De
 @router.get("/dashboard")
 def get_dashboard(db: Session = Depends(get_db)):
     players = db.query(Player).all()
+    game_finished = _get_setting(db, "game_finished", "false") == "true"
+    current_cycle = int(_get_setting(db, "current_cycle", "0"))
+    total_cycles = int(_get_setting(db, "total_cycles", "12"))
 
-    # Calculate remaining cycles from game timer
-    game_timer_end = float(_get_setting(db, "game_timer_end", "0"))
-    game_timer_remaining_s = float(_get_setting(db, "game_timer_remaining", "3600"))
-    cycle_timer_duration = float(_get_setting(db, "cycle_timer_duration", "300"))
-    is_running = _get_setting(db, "timer_running", "false") == "true"
-
-    now_ms = time.time() * 1000
-    if is_running and game_timer_end > 0:
-        game_remaining_s = max(0, (game_timer_end - now_ms) / 1000)
-    else:
-        game_remaining_s = game_timer_remaining_s
-
-    remaining_cycles = game_remaining_s / cycle_timer_duration if cycle_timer_duration > 0 else 0
+    # Calculate remaining cycles from total_cycles
+    remaining_cycles = max(0, total_cycles - current_cycle)
 
     # Get active events
     active_events = db.query(Event).filter(Event.is_active == True, Event.remaining_cycles > 0).all()
+
+    # Pre-load all enterprises for name lookup
+    all_enterprises = db.query(Enterprise).all()
+    ent_map = {e.id: e for e in all_enterprises}
+
+    # Active events info for frontend — include affected enterprise details
+    active_events_list = []
+    for evt in active_events:
+        affected_raw = evt.affected_enterprises
+        affected_ents = []
+        if affected_raw == "all":
+            affected_ents = [{"id": e.id, "name": e.name, "emoji": e.emoji} for e in all_enterprises]
+        else:
+            try:
+                ids = json.loads(affected_raw)
+                for eid in ids:
+                    ent = ent_map.get(eid)
+                    if ent:
+                        affected_ents.append({"id": ent.id, "name": ent.name, "emoji": ent.emoji})
+            except (json.JSONDecodeError, TypeError):
+                pass
+        active_events_list.append({
+            "id": evt.id,
+            "name": evt.name,
+            "description": evt.description,
+            "profit_modifier": evt.profit_modifier,
+            "remaining_cycles": evt.remaining_cycles,
+            "affected_all": affected_raw == "all",
+            "affected_enterprises": affected_ents,
+        })
 
     def calc_future_income(player_obj):
         """Calculate future income for a player considering event durations."""
@@ -586,11 +670,6 @@ def get_dashboard(db: Session = Depends(get_db)):
             ent = pe.enterprise
             base_profit = ent.profit * (1 + pe.factory_count * ent.factory_profit_percent / 100)
             profit_per_cycle = base_profit / ent.profit_cycle_interval
-
-            # For each active event affecting this enterprise,
-            # compute income in two periods: during event and after event
-            combined_modifier = 1.0
-            min_event_remaining = remaining_cycles  # shortest event duration remaining
 
             applicable_events = []
             for event in active_events:
@@ -609,8 +688,6 @@ def get_dashboard(db: Session = Depends(get_db)):
                     applicable_events.append(event)
 
             if applicable_events:
-                # Simplified: use the shortest event remaining for split calculation
-                # and multiply modifiers together
                 modifier = 1.0
                 shortest_remaining = remaining_cycles
                 for evt in applicable_events:
@@ -620,9 +697,7 @@ def get_dashboard(db: Session = Depends(get_db)):
                 event_cycles = min(shortest_remaining, remaining_cycles)
                 after_event_cycles = max(0, remaining_cycles - event_cycles)
 
-                # During event: modified profit
                 total += profit_per_cycle * modifier * event_cycles
-                # After event: normal profit
                 total += profit_per_cycle * after_event_cycles
             else:
                 total += profit_per_cycle * remaining_cycles
@@ -631,43 +706,83 @@ def get_dashboard(db: Session = Depends(get_db)):
 
     result = []
     for p in players:
-        # Own stocks percentage
-        self_stock = db.query(PlayerStock).filter(
-            PlayerStock.owner_id == p.id,
-            PlayerStock.target_player_id == p.id,
-        ).first()
-        own_pct = (self_stock.percentage if self_stock else 100) / 100
+        revenue = _calc_revenue(p)
 
-        # Component 1: own_stocks * own_enterprise_future_income
-        own_future = calc_future_income(p)
-        score = own_pct * own_future
+        if game_finished:
+            # After game finished — score = final money (already includes stock settlement)
+            score = p.money
+        else:
+            # Score estimate: budget + own stocks future income + stocks in others future income
+            self_stock = db.query(PlayerStock).filter(
+                PlayerStock.owner_id == p.id,
+                PlayerStock.target_player_id == p.id,
+            ).first()
+            own_pct = (self_stock.percentage if self_stock else 100) / 100
 
-        # Component 2: current budget
-        score += p.money
+            own_future = calc_future_income(p)
+            score = own_pct * own_future
+            score += p.money
 
-        # Component 3: stocks in other players
-        stocks_in_others = db.query(PlayerStock).filter(
-            PlayerStock.owner_id == p.id,
-            PlayerStock.target_player_id != p.id,
-            PlayerStock.percentage > 0,
-        ).all()
-        for stock in stocks_in_others:
-            target = db.query(Player).filter(Player.id == stock.target_player_id).first()
-            if target:
-                target_future = calc_future_income(target)
-                score += (stock.percentage / 100) * target_future
+            stocks_in_others = db.query(PlayerStock).filter(
+                PlayerStock.owner_id == p.id,
+                PlayerStock.target_player_id != p.id,
+                PlayerStock.percentage > 0,
+            ).all()
+            for stock in stocks_in_others:
+                target = db.query(Player).filter(Player.id == stock.target_player_id).first()
+                if target:
+                    target_future = calc_future_income(target)
+                    score += (stock.percentage / 100) * target_future
+
+        # Cycle income with event modifiers per enterprise
+        enterprise_modifiers = []
+        cycle_income = 0.0
+        for pe in p.enterprises:
+            ent = pe.enterprise
+            base = ent.profit * (1 + pe.factory_count * ent.factory_profit_percent / 100)
+            per_cycle = base / ent.profit_cycle_interval
+            mod = _get_event_modifier(ent.id, active_events)
+            effective = per_cycle * mod
+            cycle_income += effective
+            enterprise_modifiers.append({
+                "enterprise_id": ent.id,
+                "enterprise_name": ent.name,
+                "enterprise_emoji": ent.emoji,
+                "base_profit": round(per_cycle, 2),
+                "modifier": round(mod, 4),
+                "effective_profit": round(effective, 2),
+            })
 
         total_factories = sum(pe.factory_count for pe in p.enterprises)
         result.append(DashboardPlayer(
             id=p.id,
             name=p.name,
             score=round(score, 0),
+            money=round(p.money, 0),
+            revenue=round(revenue, 0),
             enterprises_count=len(p.enterprises),
             factories_count=total_factories,
         ))
+        # Attach extra fields after append
+        result[-1].__dict__['cycle_income'] = round(cycle_income, 2)
+        result[-1].__dict__['enterprise_modifiers'] = enterprise_modifiers
 
     result.sort(key=lambda x: x.score, reverse=True)
-    return result
+
+    players_out = []
+    for r in result:
+        d = r.dict()
+        d['cycle_income'] = r.__dict__.get('cycle_income', 0)
+        d['enterprise_modifiers'] = r.__dict__.get('enterprise_modifiers', [])
+        players_out.append(d)
+
+    return {
+        "players": players_out,
+        "game_finished": game_finished,
+        "current_cycle": current_cycle,
+        "total_cycles": total_cycles,
+        "active_events": active_events_list,
+    }
 
 
 # ──────────────────────────────────────────────
@@ -714,6 +829,9 @@ async def reset_game(db: Session = Depends(get_db)):
     else:
         db.add(GameSetting(key="current_cycle", value="0"))
 
+    # Reset game finished flag
+    _set_setting(db, "game_finished", "false")
+
     # Reset timers
     _set_setting(db, "timer_running", "false")
     _set_setting(db, "game_timer_end", "0")
@@ -728,7 +846,11 @@ async def reset_game(db: Session = Depends(get_db)):
     for event in active_events:
         event.is_active = False
         event.remaining_cycles = 0
-
+    
+    db.query(PlayerStock).filter(
+        PlayerStock.owner_id == None,  # noqa: E711
+    ).delete()
+    
     players = db.query(Player).all()
     for player in players:
         player.money = budget
@@ -758,10 +880,16 @@ async def reset_game(db: Session = Depends(get_db)):
             f"Начальный бюджет: ${budget:,.0f}",
         )
 
-        await send_telegram_message(
-            player.telegram_id,
-            "🔄  <b>Игра сброшена!</b>\n━━━━━━━━━━━━━━━━━━━\n\n💰  Начальный бюджет:  <b>${:,.0f}</b>".format(budget)
-        )
+        if player.telegram_id:
+            await send_telegram_message(
+                player.telegram_id,
+                "🔄  <b>Игра сброшена!</b>\n━━━━━━━━━━━━━━━━━━━\n\n💰  Начальный бюджет:  <b>${:,.0f}</b>".format(budget)
+            )
+
+    # Regenerate room code
+    import random, string
+    new_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    _set_setting(db, "room_code", new_code)
 
     db.commit()
     return {"ok": True}

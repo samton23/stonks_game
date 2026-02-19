@@ -9,8 +9,10 @@ import PricesPage from './pages/admin/PricesPage'
 import GameControlPage from './pages/admin/GameControlPage'
 import EventsPage from './pages/admin/EventsPage'
 import HostRulesPage from './pages/admin/HostRulesPage'
+import StocksPage from './pages/admin/StocksPage'
 import DashboardPage from './pages/dashboard/DashboardPage'
 import MiniApp from './pages/webapp/MiniApp'
+import JoinPage from './pages/join/JoinPage'
 
 function App() {
   return (
@@ -41,10 +43,12 @@ function App() {
           <Route path="prices" element={<PricesPage />} />
           <Route path="game" element={<GameControlPage />} />
           <Route path="events" element={<EventsPage />} />
+          <Route path="stocks" element={<StocksPage />} />
           <Route path="host-rules" element={<HostRulesPage />} />
         </Route>
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/app" element={<MiniApp />} />
+        <Route path="/join" element={<JoinPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </>

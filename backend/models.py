@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, BigInteger, Boolean, DateTime, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from datetime import datetime, timezone
 from database import Base
 
@@ -8,9 +8,10 @@ class Player(Base):
     __tablename__ = "players"
 
     id = Column(Integer, primary_key=True, index=True)
-    telegram_id = Column(BigInteger, unique=True, index=True, nullable=False)
+    telegram_id = Column(BigInteger, unique=True, index=True, nullable=True)
     name = Column(String(255), nullable=False)
     money = Column(Float, default=0)
+    browser_token = Column(String(36), unique=True, index=True, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     enterprises = relationship("PlayerEnterprise", back_populates="player", cascade="all, delete-orphan")
@@ -74,12 +75,12 @@ class PlayerStock(Base):
     __tablename__ = "player_stocks"
 
     id = Column(Integer, primary_key=True, index=True)
-    owner_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=True)  # NULL = bank
     target_player_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
     percentage = Column(Float, default=0)  # 10, 20, 30...
 
-    owner = relationship("Player", foreign_keys=[owner_id], backref="owned_stocks")
-    target_player = relationship("Player", foreign_keys=[target_player_id], backref="stocks_issued")
+    owner = relationship("Player", foreign_keys=[owner_id], backref=backref("owned_stocks", passive_deletes=True))
+    target_player = relationship("Player", foreign_keys=[target_player_id], backref=backref("stocks_issued", passive_deletes=True))
 
 
 class Event(Base):

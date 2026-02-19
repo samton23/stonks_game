@@ -1,6 +1,13 @@
+export interface BrowserJoinResponse {
+  token: string;
+  player_id: number;
+  name: string;
+  money: number;
+}
+
 export interface Player {
   id: number;
-  telegram_id: number;
+  telegram_id?: number | null;
   name: string;
   money: number;
   enterprises: PlayerEnterprise[];
@@ -32,15 +39,48 @@ export interface Enterprise {
 
 export interface GameState {
   current_cycle: number;
+  total_cycles: number;
+  game_finished: boolean;
   players: Player[];
+}
+
+export interface EnterpriseModifier {
+  enterprise_id: number;
+  enterprise_name: string;
+  enterprise_emoji: string;
+  base_profit: number;
+  modifier: number;
+  effective_profit: number;
 }
 
 export interface DashboardPlayer {
   id: number;
   name: string;
   score: number;
+  money: number;
+  revenue: number;
   enterprises_count: number;
   factories_count: number;
+  cycle_income: number;
+  enterprise_modifiers: EnterpriseModifier[];
+}
+
+export interface DashboardData {
+  players: DashboardPlayer[];
+  game_finished: boolean;
+  current_cycle: number;
+  total_cycles: number;
+  active_events: ActiveEventInfo[];
+}
+
+export interface ActiveEventInfo {
+  id: number;
+  name: string;
+  description: string;
+  profit_modifier: number;
+  remaining_cycles: number;
+  affected_all: boolean;
+  affected_enterprises: { id: number; name: string; emoji: string }[];
 }
 
 export interface Settings {
@@ -79,10 +119,38 @@ export interface PlayerStockInfo {
   owned_in_others: { target_player_id: number; target_player_name: string; percentage: number; expected_income: number }[];
 }
 
+export interface StocksOverview {
+  players: {
+    player_id: number;
+    player_name: string;
+    own_percentage: number;
+    holders: { owner_id: number; owner_name: string; percentage: number }[];
+  }[];
+  bank: {
+    target_player_id: number;
+    target_player_name: string;
+    percentage: number;
+  }[];
+}
+
+export interface WebAppStockData {
+  own_percentage: number;
+  owned_in_others: {
+    target_player_id: number;
+    target_player_name: string;
+    percentage: number;
+    target_budget: number;
+    target_revenue_per_cycle: number;
+    estimated_yield: number;
+  }[];
+  total_estimated_yield: number;
+  remaining_cycles: number;
+}
+
 // WebApp (Mini App)
 export interface WebAppPlayer {
   id: number;
-  telegram_id: number;
+  telegram_id?: number | null;
   name: string;
   money: number;
   revenue: number;

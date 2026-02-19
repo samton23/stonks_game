@@ -1,3 +1,4 @@
+import random
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
@@ -90,3 +91,26 @@ def deactivate_event(event_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(event)
     return event
+
+
+@router.post("/random", response_model=EventOut)
+def random_event(db: Session = Depends(get_db)):
+    """Pick a random inactive event and activate it."""
+    inactive = db.query(Event).filter(Event.is_active == False).all()
+    if not inactive:
+        raise HTTPException(400, "No inactive events available")
+    event = random.choice(inactive)
+    event.is_active = True
+    event.remaining_cycles = event.duration_cycles
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+@router.get("/active", response_model=List[EventOut])
+def get_active_events(db: Session = Depends(get_db)):
+    """Get only currently active events."""
+    return db.query(Event).filter(
+        Event.is_active == True,
+        Event.remaining_cycles > 0,
+    ).all()

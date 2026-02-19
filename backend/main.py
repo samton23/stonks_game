@@ -1,11 +1,17 @@
 import os
 import json
+import random
+import string
 from sqlalchemy import inspect, text
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base, SessionLocal
 from models import GameSetting, Enterprise, Notification, Player, PlayerStock, Event
-from routes import players, enterprises, settings, game, webapp, stocks, events
+from routes import players, enterprises, settings, game, webapp, stocks, events, join
+
+
+def generate_room_code():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 # Migrate tables if schema changed
 _inspector = inspect(engine)
@@ -21,6 +27,11 @@ if _inspector.has_table("players"):
     if "invitation_token" in existing_cols:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE players DROP COLUMN IF EXISTS invitation_token"))
+    # Add browser_token and make telegram_id nullable
+    with engine.begin() as conn:
+        if "browser_token" not in existing_cols:
+            conn.execute(text("ALTER TABLE players ADD COLUMN browser_token VARCHAR(36) UNIQUE"))
+        conn.execute(text("ALTER TABLE players ALTER COLUMN telegram_id DROP NOT NULL"))
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -42,6 +53,7 @@ app.include_router(game.router)
 app.include_router(webapp.router)
 app.include_router(stocks.router)
 app.include_router(events.router)
+app.include_router(join.router)
 
 
 # --- Default events from the rules document ---
@@ -154,8 +166,13 @@ def seed_defaults():
             "cycle_timer_remaining": "300",
             "game_timer_duration": "3600",
             "cycle_timer_duration": "300",
+            # Game settings
+            "total_cycles": "12",
+            "game_finished": "false",
             # Stock settings
             "stock_price": "50",
+            # Room code for browser join
+            "room_code": generate_room_code(),
             # Host rules
             "host_rules": json.dumps(DEFAULT_HOST_RULES, ensure_ascii=False),
         }
