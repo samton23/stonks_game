@@ -2,16 +2,19 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   TrendingUp, Building2, Factory, ScrollText, DollarSign,
-  Wallet, RefreshCw, Calculator, Delete
+  Wallet, RefreshCw, Calculator, Delete, BarChart2
 } from 'lucide-react'
 import {
   webappAuth, webappAuthDev, getWebappRules, getWebappPrices,
   getWebappNotifications, getWebappNotificationsDev,
   markNotificationsRead, markNotificationsReadDev,
+  getWebappStocks, getWebappStocksDev,
+  webappAuthBrowser, getWebappNotificationsBrowser,
+  markNotificationsReadBrowser, getWebappStocksBrowser,
 } from '../../api'
-import type { WebAppPlayer, PriceItem, InAppNotification } from '../../types'
+import type { WebAppPlayer, PriceItem, InAppNotification, WebAppStockData } from '../../types'
 
-type Tab = 'profile' | 'prices' | 'rules' | 'calc'
+type Tab = 'profile' | 'prices' | 'rules' | 'calc' | 'stocks'
 
 /* ───────── Animated number ───────── */
 function AnimatedMoney({ value }: { value: number }) {
@@ -444,22 +447,41 @@ export default function MiniApp() {
   const [tab, setTab] = useState<Tab>('profile')
   const [rules, setRules] = useState('')
   const [prices, setPrices] = useState<PriceItem[]>([])
+  const [stockData, setStockData] = useState<WebAppStockData | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [activeNotifs, setActiveNotifs] = useState<InAppNotification[]>([])
 
   const tg = window.Telegram?.WebApp
 
+  // Browser token from localStorage
+  const getBrowserToken = useCallback((): string | null => {
+    try {
+      const raw = localStorage.getItem('stonks_session')
+      if (!raw) return null
+      const session = JSON.parse(raw)
+      if (session.expires && Date.now() > session.expires) {
+        localStorage.removeItem('stonks_session')
+        return null
+      }
+      return session.token || null
+    } catch { return null }
+  }, [])
+
   // Helper: get auth params
   const getAuthBody = useCallback(() => {
     const params = new URLSearchParams(window.location.search)
     const initData = tg?.initData || ''
     if (initData) return { initData }
-    
+
     const tgid = params.get('tgid')
     if (tgid) return { telegram_id: parseInt(tgid) }
+
+    const bt = getBrowserToken()
+    if (bt) return { browser_token: bt }
+
     return null
-  }, [tg])
+  }, [tg, getBrowserToken])
 
   // Auth & load profile
   const loadProfile = useCallback(async (showRefresh = false) => {
@@ -470,18 +492,21 @@ export default function MiniApp() {
       const initData = tg?.initData || ''
       
       if (initData) {
-        // Telegram Mini App auth
         data = await webappAuth(initData)
       } else {
-        // Web access via tgid parameter
         const tgid = params.get('tgid')
         if (tgid) {
           data = await webappAuthDev(parseInt(tgid))
         } else {
-          setError('dev_no_id')
-          setLoading(false)
-          setRefreshing(false)
-          return
+          const bt = getBrowserToken()
+          if (bt) {
+            data = await webappAuthBrowser(bt)
+          } else {
+            setError('dev_no_id')
+            setLoading(false)
+            setRefreshing(false)
+            return
+          }
         }
       }
       setPlayer(data)
@@ -496,7 +521,7 @@ export default function MiniApp() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [tg])
+  }, [tg, getBrowserToken])
 
   // Poll notifications
   const pollNotifications = useCallback(async () => {
@@ -509,6 +534,8 @@ export default function MiniApp() {
         notifs = await getWebappNotifications(authBody.initData)
       } else if ('telegram_id' in authBody) {
         notifs = await getWebappNotificationsDev(authBody.telegram_id)
+      } else if ('browser_token' in authBody) {
+        notifs = await getWebappNotificationsBrowser(authBody.browser_token)
       } else {
         return
       }
@@ -527,6 +554,8 @@ export default function MiniApp() {
           markNotificationsRead(authBody.initData, ids).catch(() => {})
         } else if ('telegram_id' in authBody) {
           markNotificationsReadDev(authBody.telegram_id, ids).catch(() => {})
+        } else if ('browser_token' in authBody) {
+          markNotificationsReadBrowser(authBody.browser_token, ids).catch(() => {})
         }
 
         // Haptic feedback
@@ -572,6 +601,18 @@ export default function MiniApp() {
     }
     if (tab === 'prices' || tab === 'calc') {
       getWebappPrices().then((d) => setPrices(d)).catch(() => {})
+    }
+    if (tab === 'stocks') {
+      const authBody = getAuthBody()
+      if (authBody) {
+        if ('initData' in authBody) {
+          getWebappStocks(authBody.initData).then(setStockData).catch(() => {})
+        } else if ('telegram_id' in authBody) {
+          getWebappStocksDev(authBody.telegram_id).then(setStockData).catch(() => {})
+        } else if ('browser_token' in authBody) {
+          getWebappStocksBrowser(authBody.browser_token).then(setStockData).catch(() => {})
+        }
+      }
     }
     try { tg?.HapticFeedback.selectionChanged() } catch {}
   }, [tab, tg])
@@ -650,6 +691,7 @@ export default function MiniApp() {
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'profile', label: 'Профиль', icon: <Wallet size={18} /> },
+    { id: 'stocks', label: 'Акции', icon: <BarChart2 size={18} /> },
     { id: 'prices', label: 'Цены', icon: <DollarSign size={18} /> },
     { id: 'calc', label: 'Расчёт', icon: <Calculator size={18} /> },
     { id: 'rules', label: 'Правила', icon: <ScrollText size={18} /> },
@@ -955,6 +997,88 @@ export default function MiniApp() {
                   </motion.div>
                 )}
               </div>
+            </motion.div>
+          )}
+
+          {/* ─── STOCKS TAB ─── */}
+          {tab === 'stocks' && (
+            <motion.div
+              key="stocks"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2 }}
+              className="p-5"
+            >
+              <h1 className="text-2xl font-extrabold mb-1">Акции 📊</h1>
+              <p className="text-gray-500 text-sm mb-5">Ваши доли в компаниях других игроков</p>
+
+              {stockData ? (
+                <>
+                  {/* Own stock remaining */}
+                  <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} className="glass rounded-xl p-4 mb-4">
+                    <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Свои акции</div>
+                    <div className="text-3xl font-black font-mono text-accent-blue">{stockData.own_percentage}%</div>
+                    <div className="text-xs text-gray-500 mt-1">Оставшиеся циклов: {stockData.remaining_cycles}</div>
+                  </motion.div>
+
+                  {/* Owned in others */}
+                  {stockData.owned_in_others.length > 0 ? (
+                    <div className="space-y-3">
+                      {stockData.owned_in_others.map((s, i) => (
+                        <motion.div
+                          key={s.target_player_id}
+                          initial={{ opacity:0, y:10 }}
+                          animate={{ opacity:1, y:0 }}
+                          transition={{ delay: i * 0.05 }}
+                          className="glass rounded-xl p-4"
+                        >
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <div className="font-bold">{s.target_player_name}</div>
+                              <div className="text-xs text-gray-500">Доля: <span className="text-accent-purple font-bold">{s.percentage}%</span></div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs text-gray-500">Прогноз к ц.{(stockData.remaining_cycles + 0)}</div>
+                              <div className="font-mono font-bold text-accent-gold">
+                                ~${s.estimated_yield.toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="bg-dark-700/50 rounded-lg p-2">
+                              <div className="text-gray-500">Бюджет цели</div>
+                              <div className="font-mono text-white">${s.target_budget.toLocaleString()}</div>
+                            </div>
+                            <div className="bg-dark-700/50 rounded-lg p-2">
+                              <div className="text-gray-500">Доход/цикл</div>
+                              <div className="font-mono text-accent-green">+${s.target_revenue_per_cycle.toLocaleString()}</div>
+                            </div>
+                          </div>
+                          <div className="mt-2 text-[10px] text-gray-600">
+                            Расчёт: (${s.target_budget.toLocaleString()} + ${s.target_revenue_per_cycle.toLocaleString()} × {stockData.remaining_cycles} ц.) × {s.percentage}%
+                          </div>
+                        </motion.div>
+                      ))}
+                      <div className="glass rounded-xl p-4 flex items-center justify-between">
+                        <span className="text-sm text-gray-400">Итого прогноз</span>
+                        <span className="font-mono font-bold text-xl text-accent-gold">
+                          ~${stockData.total_estimated_yield.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} className="glass rounded-xl p-8 text-center">
+                      <div className="text-4xl mb-3">📭</div>
+                      <p className="text-gray-500 text-sm">Вы не владеете акциями других игроков</p>
+                    </motion.div>
+                  )}
+                </>
+              ) : (
+                <div className="flex items-center justify-center py-16">
+                  <div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
             </motion.div>
           )}
 

@@ -38,6 +38,7 @@ export const updateSetting = (key: string, value: string) =>
 // Game
 export const getGameState = () => request('/game/state');
 export const advanceCycle = () => request('/game/cycle/advance', { method: 'POST' });
+export const finishGame = () => request('/game/finish', { method: 'POST' });
 export const setCycle = (cycle: number) =>
   request('/game/cycle/set', { method: 'POST', body: JSON.stringify({ cycle }) });
 export const addEnterpriseToPlayer = (playerId: number, enterpriseId: number) =>
@@ -62,6 +63,37 @@ export const notifyPlayer = (playerId: number, message: string) =>
   });
 export const resetGame = () => request('/game/reset', { method: 'POST' });
 
+// Timers
+export const getTimers = () => request('/game/timers');
+export const startTimers = () => request('/game/timers/start', { method: 'POST' });
+export const pauseTimers = () => request('/game/timers/pause', { method: 'POST' });
+export const resetGameTimer = () => request('/game/timers/reset-game', { method: 'POST' });
+export const resetCycleTimer = () => request('/game/timers/reset-cycle', { method: 'POST' });
+export const setTimerDuration = (data: { game_timer_duration?: number; cycle_timer_duration?: number }) =>
+  request('/game/timers/set-duration', { method: 'POST', body: JSON.stringify(data) });
+
+// Stocks
+export const getStocks = () => request('/stocks');
+export const getPlayerStocks = (playerId: number) => request(`/stocks/player/${playerId}`);
+export const transferStock = (data: { from_id: number; to_id: number; target_player_id: number; percentage: number; price_per_share?: number }) =>
+  request('/stocks/transfer', { method: 'POST', body: JSON.stringify(data) });
+
+// Events
+export const getEvents = () => request('/events');
+export const createEvent = (data: any) =>
+  request('/events', { method: 'POST', body: JSON.stringify(data) });
+export const updateEvent = (id: number, data: any) =>
+  request(`/events/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const deleteEvent = (id: number) =>
+  request(`/events/${id}`, { method: 'DELETE' });
+export const activateEvent = (id: number) =>
+  request(`/events/${id}/activate`, { method: 'POST' });
+export const deactivateEvent = (id: number) =>
+  request(`/events/${id}/deactivate`, { method: 'POST' });
+export const randomEvent = () =>
+  request('/events/random', { method: 'POST' });
+export const getActiveEvents = () => request('/events/active');
+
 // Dashboard
 export const getDashboard = () => request('/game/dashboard');
 
@@ -72,6 +104,10 @@ export const webappAuthDev = (telegramId: number) =>
   request('/webapp/auth', { method: 'POST', body: JSON.stringify({ telegram_id: telegramId }) });
 export const getWebappRules = () => request('/webapp/rules');
 export const getWebappPrices = () => request('/webapp/prices');
+export const getWebappStocks = (initData: string) =>
+  request('/webapp/stocks', { method: 'POST', body: JSON.stringify({ initData }) });
+export const getWebappStocksDev = (telegramId: number) =>
+  request('/webapp/stocks', { method: 'POST', body: JSON.stringify({ telegram_id: telegramId }) });
 
 // WebApp Notifications
 export const getWebappNotifications = (initData: string) =>
@@ -82,3 +118,20 @@ export const markNotificationsRead = (initData: string, ids: number[]) =>
   request('/webapp/notifications/read', { method: 'POST', body: JSON.stringify({ initData, ids }) });
 export const markNotificationsReadDev = (telegramId: number, ids: number[]) =>
   request('/webapp/notifications/read', { method: 'POST', body: JSON.stringify({ telegram_id: telegramId, ids }) });
+
+// Browser Join
+export const getRoomCode = () => request('/join/room-code');
+export const joinGame = (data: { name: string; room_code: string }) =>
+  request('/join', { method: 'POST', body: JSON.stringify(data) });
+export const validateBrowserToken = (token: string) =>
+  request('/join/validate-token', { method: 'POST', body: JSON.stringify({ token }) });
+
+// WebApp via browser token
+export const webappAuthBrowser = (token: string) =>
+  request('/webapp/auth', { method: 'POST', body: JSON.stringify({ browser_token: token }) });
+export const getWebappNotificationsBrowser = (token: string) =>
+  request('/webapp/notifications', { method: 'POST', body: JSON.stringify({ browser_token: token }) });
+export const markNotificationsReadBrowser = (token: string, ids: number[]) =>
+  request('/webapp/notifications/read', { method: 'POST', body: JSON.stringify({ browser_token: token, ids }) });
+export const getWebappStocksBrowser = (token: string) =>
+  request('/webapp/stocks', { method: 'POST', body: JSON.stringify({ browser_token: token }) });

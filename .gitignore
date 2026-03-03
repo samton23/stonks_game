@@ -1,8 +1,68 @@
-node_modules/
-dist/
+# Environment variables (IMPORTANT: never commit!)
 .env
+.env.local
+.env.production
+.env.*.local
+
+# Python
 __pycache__/
+*.py[cod]
 *.pyc
+*$py.class
+*.so
+.Python
 .venv/
+venv/
+env/
+ENV/
 *.egg-info/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+package-lock.json
+
+# Frontend build
+dist/
+build/
+.vite/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
+Thumbs.db
+.directory
+
+# Docker
+docker-compose.override.yml
+
+# Database (keep schema migrations)
+postgres_data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Generated documentation scripts (keep .docx files)
+create_user_guide.js
+create_tech_guide.js
+
+# Documentation folder
+docs/

@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, BigInteger, Boolean, DateTime, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from datetime import datetime, timezone
 from database import Base
 
@@ -8,9 +8,10 @@ class Player(Base):
     __tablename__ = "players"
 
     id = Column(Integer, primary_key=True, index=True)
-    telegram_id = Column(BigInteger, unique=True, index=True, nullable=False)
+    telegram_id = Column(BigInteger, unique=True, index=True, nullable=True)
     name = Column(String(255), nullable=False)
     money = Column(Float, default=0)
+    browser_token = Column(String(36), unique=True, index=True, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     enterprises = relationship("PlayerEnterprise", back_populates="player", cascade="all, delete-orphan")
@@ -68,3 +69,29 @@ class Notification(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     player = relationship("Player")
+
+
+class PlayerStock(Base):
+    __tablename__ = "player_stocks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=True)  # NULL = bank
+    target_player_id = Column(Integer, ForeignKey("players.id", ondelete="CASCADE"), nullable=False)
+    percentage = Column(Float, default=0)  # 10, 20, 30...
+
+    owner = relationship("Player", foreign_keys=[owner_id], backref=backref("owned_stocks", passive_deletes=True))
+    target_player = relationship("Player", foreign_keys=[target_player_id], backref=backref("stocks_issued", passive_deletes=True))
+
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, default="")
+    affected_enterprises = Column(Text, default="[]")  # JSON: list of enterprise IDs or "all"
+    profit_modifier = Column(Float, default=1.0)  # 0.5 = -50%, 1.5 = +50%, 2.0 = x2
+    duration_cycles = Column(Integer, default=1)
+    remaining_cycles = Column(Integer, default=0)
+    is_active = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

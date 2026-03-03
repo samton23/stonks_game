@@ -24,7 +24,14 @@ def get_all_settings(db: Session = Depends(get_db)):
     for s in settings:
         result[s.key] = s.value
     # Ensure defaults
-    defaults = {"rules": "", "budget": "10000", "current_cycle": "0"}
+    defaults = {
+        "rules": "", "budget": "10000", "current_cycle": "0",
+        "timer_running": "false",
+        "game_timer_end": "0", "cycle_timer_end": "0",
+        "game_timer_remaining": "3600", "cycle_timer_remaining": "300",
+        "game_timer_duration": "3600", "cycle_timer_duration": "300",
+        "stock_price": "50",
+    }
     for key, default in defaults.items():
         if key not in result:
             _get_or_create(db, key, default)

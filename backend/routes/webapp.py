@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, unquote
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Player, Enterprise, GameSetting, Notification
+from models import Player, Enterprise, GameSetting, Notification, PlayerStock
 
 router = APIRouter(prefix="/api/webapp", tags=["webapp"])
 
@@ -69,6 +69,13 @@ def _resolve_player(body: dict, db: Session) -> Player:
         if dev_id:
             user = {"id": int(dev_id)}
         else:
+            # Try browser token auth
+            browser_token = body.get("browser_token")
+            if browser_token:
+                player = db.query(Player).filter(Player.browser_token == browser_token).first()
+                if not player:
+                    raise HTTPException(401, "Invalid browser token")
+                return player
             raise HTTPException(401, "Invalid initData")
 
     telegram_id = user.get("id")
@@ -141,6 +148,65 @@ def get_prices(db: Session = Depends(get_db)):
         "factory_price": e.factory_price,
         "factory_profit_percent": e.factory_profit_percent,
     } for e in enterprises]
+
+
+@router.post("/stocks")
+def get_player_stocks(body: dict, db: Session = Depends(get_db)):
+    """Return stock data for the authenticated player.
+    Stock value = target player's final budget * stock%.
+    Estimated yield = (target budget + target revenue/cycle * remaining_cycles) * stock%.
+    """
+    player = _resolve_player(body, db)
+
+    current_cycle = int(_get_setting(db, "current_cycle", "0"))
+    total_cycles = int(_get_setting(db, "total_cycles", "12"))
+    remaining_cycles = max(0, total_cycles - current_cycle)
+
+    # Own stocks
+    self_stock = db.query(PlayerStock).filter(
+        PlayerStock.owner_id == player.id,
+        PlayerStock.target_player_id == player.id,
+    ).first()
+    own_percentage = self_stock.percentage if self_stock else 100
+
+    # Stocks owned in other players
+    owned_in_others = db.query(PlayerStock).filter(
+        PlayerStock.owner_id == player.id,
+        PlayerStock.target_player_id != player.id,
+        PlayerStock.percentage > 0,
+    ).all()
+
+    owned_list = []
+    total_estimated = 0.0
+    for o in owned_in_others:
+        target = db.query(Player).filter(Player.id == o.target_player_id).first()
+        target_revenue = 0.0
+        target_budget = 0.0
+        if target:
+            target_budget = target.money
+            for pe in target.enterprises:
+                ent = pe.enterprise
+                effective = ent.profit * (1 + pe.factory_count * ent.factory_profit_percent / 100)
+                target_revenue += effective / ent.profit_cycle_interval
+        # Estimated yield = (target budget + target revenue/cycle * remaining) * stock%
+        estimated_target_final = target_budget + target_revenue * remaining_cycles
+        estimated_yield = estimated_target_final * (o.percentage / 100)
+        total_estimated += estimated_yield
+        owned_list.append({
+            "target_player_id": o.target_player_id,
+            "target_player_name": target.name if target else "Неизвестно",
+            "percentage": o.percentage,
+            "target_budget": round(target_budget, 2),
+            "target_revenue_per_cycle": round(target_revenue, 2),
+            "estimated_yield": round(estimated_yield, 2),
+        })
+
+    return {
+        "own_percentage": own_percentage,
+        "owned_in_others": owned_list,
+        "total_estimated_yield": round(total_estimated, 2),
+        "remaining_cycles": remaining_cycles,
+    }
 
 
 @router.post("/notifications")

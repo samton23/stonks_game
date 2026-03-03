@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from database import get_db
-from models import Player, PlayerEnterprise, Enterprise
+from models import Player, PlayerEnterprise, Enterprise, PlayerStock, GameSetting
 from schemas import PlayerCreate, PlayerOut, PlayerEnterpriseOut
 
 router = APIRouter(prefix="/api/players", tags=["players"])
@@ -28,7 +28,7 @@ def _build_player_out(player: Player) -> dict:
         ))
     return {
         "id": player.id,
-        "telegram_id": player.telegram_id,
+        "telegram_id": player.telegram_id or 0,
         "name": player.name,
         "money": player.money,
         "enterprises": enterprises_out,
@@ -44,17 +44,32 @@ def list_players(db: Session = Depends(get_db)):
 
 @router.post("", response_model=PlayerOut)
 def create_player(data: PlayerCreate, db: Session = Depends(get_db)):
-    existing = db.query(Player).filter(Player.telegram_id == data.telegram_id).first()
-    if existing:
-        raise HTTPException(400, "Player with this Telegram ID already exists")
+    if data.telegram_id is not None:
+        existing = db.query(Player).filter(Player.telegram_id == data.telegram_id).first()
+        if existing:
+            raise HTTPException(400, "Player with this Telegram ID already exists")
+    # Get initial budget from settings
+    budget_setting = db.query(GameSetting).filter(GameSetting.key == "budget").first()
+    initial_budget = float(budget_setting.value) if budget_setting else 10000
+
     player = Player(
         telegram_id=data.telegram_id,
         name=data.name,
-        money=0,
+        money=initial_budget,
     )
     db.add(player)
     db.commit()
     db.refresh(player)
+
+    # Create self-stock (100% own shares)
+    self_stock = PlayerStock(
+        owner_id=player.id,
+        target_player_id=player.id,
+        percentage=100,
+    )
+    db.add(self_stock)
+    db.commit()
+
     return _build_player_out(player)
 
 

@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  Users, Factory, ScrollText, Settings, DollarSign, Gamepad2, LayoutDashboard
+  Users, Factory, ScrollText, Settings, DollarSign, Gamepad2, LayoutDashboard, Zap, BookOpen, TrendingUp
 } from 'lucide-react'
 
 const navItems = [
@@ -9,7 +9,10 @@ const navItems = [
   { to: '/admin/players', icon: Users, label: 'Игроки' },
   { to: '/admin/enterprises', icon: Factory, label: 'Предприятия' },
   { to: '/admin/prices', icon: DollarSign, label: 'Цены' },
+  { to: '/admin/stocks', icon: TrendingUp, label: 'Акции' },
+  { to: '/admin/events', icon: Zap, label: 'События' },
   { to: '/admin/rules', icon: ScrollText, label: 'Правила' },
+  { to: '/admin/host-rules', icon: BookOpen, label: 'Для ведущего' },
   { to: '/admin/settings', icon: Settings, label: 'Настройки' },
 ]
 
@@ -33,7 +36,7 @@ export default function AdminLayout() {
           </h1>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
