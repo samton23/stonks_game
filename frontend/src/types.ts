@@ -156,6 +156,7 @@ export interface WebAppPlayer {
   revenue: number;
   current_cycle: number;
   enterprises: PlayerEnterprise[];
+  prev_cycle_income?: number;
 }
 
 export interface PriceItem {

@@ -30,6 +30,7 @@ export default function GameControlPage() {
   const [moneyReasons, setMoneyReasons] = useState<Record<number, string>>({})
   const [notifyInputs, setNotifyInputs] = useState<Record<number, string>>({})
   const [showAddEnterprise, setShowAddEnterprise] = useState<number | null>(null)
+  const [factoryInputs, setFactoryInputs] = useState<Record<string, string>>({})
   const [advancing, setAdvancing] = useState(false)
 
   // Timer state
@@ -162,10 +163,10 @@ export default function GameControlPage() {
     } catch (e: any) { toast.error(e.message) }
   }
 
-  const handleAddFactory = async (playerId: number, enterpriseId: number) => {
+  const handleAddFactory = async (playerId: number, enterpriseId: number, count = 1) => {
     try {
-      await addFactory(playerId, enterpriseId)
-      toast.success('Завод добавлен')
+      await addFactory(playerId, enterpriseId, count)
+      toast.success(count > 1 ? `+${count} заводов` : 'Завод добавлен')
       load()
     } catch (e: any) { toast.error(e.message) }
   }
@@ -232,10 +233,11 @@ export default function GameControlPage() {
       </div>
 
       {/* Timer Panel */}
+      <div className="sticky top-0 z-20 -mx-8 px-8 -mt-8 pt-8 pb-4 bg-dark-900/95 backdrop-blur-sm mb-2">
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="glass rounded-2xl p-6 mb-6"
+        className="glass rounded-2xl p-6"
       >
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Таймеры</h3>
@@ -293,6 +295,7 @@ export default function GameControlPage() {
           </div>
         </div>
       </motion.div>
+      </div>
 
       {/* Cycle Control */}
       <motion.div
@@ -462,7 +465,7 @@ export default function GameControlPage() {
 
                           {player.enterprises.length > 0 ? (
                             <div className="space-y-2">
-                              {player.enterprises.map((pe) => (
+                              {[...player.enterprises].sort((a, b) => a.enterprise_id - b.enterprise_id).map((pe) => (
                                 <div
                                   key={pe.id}
                                   className="bg-dark-700/50 rounded-xl p-4 flex items-center justify-between"
@@ -478,19 +481,35 @@ export default function GameControlPage() {
                                   </div>
                                   <div className="flex items-center gap-4">
                                     <div className="flex items-center gap-2">
-                                      <span className="text-xs text-gray-500">🏗 Заводы:</span>
+                                      <span className="text-xs text-gray-500">🏗</span>
                                       <button
                                         onClick={() => handleRemoveFactory(player.id, pe.enterprise_id)}
                                         className="w-7 h-7 rounded-lg bg-dark-600 hover:bg-accent-red/20 hover:text-accent-red flex items-center justify-center text-gray-400"
+                                        title="Убрать 1 завод"
                                       >
                                         <Minus size={14} />
                                       </button>
                                       <span className="font-mono font-bold w-6 text-center">
                                         {pe.factory_count}
                                       </span>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        value={factoryInputs[`${player.id}-${pe.enterprise_id}`] ?? '1'}
+                                        onChange={(e) => setFactoryInputs(p => ({
+                                          ...p,
+                                          [`${player.id}-${pe.enterprise_id}`]: e.target.value,
+                                        }))}
+                                        className="w-12 h-7 text-center bg-dark-600 border border-white/10 rounded-lg text-sm font-mono focus:outline-none focus:border-accent-green/50"
+                                      />
                                       <button
-                                        onClick={() => handleAddFactory(player.id, pe.enterprise_id)}
+                                        onClick={() => handleAddFactory(
+                                          player.id,
+                                          pe.enterprise_id,
+                                          Math.max(1, parseInt(factoryInputs[`${player.id}-${pe.enterprise_id}`] || '1') || 1),
+                                        )}
                                         className="w-7 h-7 rounded-lg bg-dark-600 hover:bg-accent-green/20 hover:text-accent-green flex items-center justify-center text-gray-400"
+                                        title="Добавить заводов"
                                       >
                                         <Plus size={14} />
                                       </button>

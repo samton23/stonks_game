@@ -227,7 +227,16 @@ export default function StocksPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-6">
+                {(() => {
+                  const gp = players.find(gpl => gpl.id === p.player_id)
+                  return gp ? (
+                    <div className="text-right">
+                      <div className="text-xs text-gray-500">Баланс</div>
+                      <div className="font-mono font-bold text-accent-green text-sm">${gp.money.toLocaleString()}</div>
+                    </div>
+                  ) : null
+                })()}
                 {p.holders.length > 0 && (
                   <div className="text-right">
                     <div className="text-xs text-gray-500 mb-1">Владельцы</div>

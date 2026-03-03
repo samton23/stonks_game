@@ -224,11 +224,12 @@ function NotificationOverlay({
 /* ───────── Safe expression evaluator ───────── */
 function safeEval(expr: string): string {
   try {
-    // Only allow digits, operators, parentheses, dots, spaces
+    // Only allow digits, operators, parentheses, dots, spaces, %
     const sanitized = expr.replace(/[^0-9+\-*/().% ]/g, '')
     if (!sanitized.trim()) return ''
-    // Replace % with /100* for percentage support isn't needed, keep simple
-    const result = new Function(`"use strict"; return (${sanitized})`)()
+    // Treat X% as (X/100) — e.g. 1000*15% → 1000*(15/100) = 150
+    const withPercent = sanitized.replace(/(\d+(?:\.\d+)?)%/g, '($1/100)')
+    const result = new Function(`"use strict"; return (${withPercent})`)()
     if (typeof result !== 'number' || !isFinite(result)) return 'Ошибка'
     // Format nicely
     return Number.isInteger(result) ? result.toLocaleString() : result.toLocaleString(undefined, { maximumFractionDigits: 2 })
@@ -238,28 +239,50 @@ function safeEval(expr: string): string {
 }
 
 /* ───────── Calculator Tab Component ───────── */
-function CalculatorTab({ prices, tg }: { prices: PriceItem[]; tg: any }) {
-  const [expr, setExpr] = useState('')
-  const [result, setResult] = useState('')
-  const [lastInserted, setLastInserted] = useState<string | null>(null)
+function CalculatorTab({
+  prices, tg, expr, setExpr, result, setResult, lastInserted, setLastInserted,
+}: {
+  prices: PriceItem[]; tg: any
+  expr: string; setExpr: (v: string) => void
+  result: string; setResult: (v: string) => void
+  lastInserted: string | null; setLastInserted: (v: string | null) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
 
   // Live evaluate
   useEffect(() => {
     setResult(safeEval(expr))
   }, [expr])
 
-  const append = (val: string) => {
-    setExpr((prev) => prev + val)
+  // Insert text at current cursor position (or end)
+  const insertAtCursor = (val: string) => {
+    const input = inputRef.current
+    const start = input?.selectionStart ?? expr.length
+    const end = input?.selectionEnd ?? expr.length
+    const newExpr = expr.slice(0, start) + val + expr.slice(end)
+    setExpr(newExpr)
     setLastInserted(null)
     try { tg?.HapticFeedback.impactOccurred('light') } catch {}
+    requestAnimationFrame(() => {
+      input?.focus()
+      input?.setSelectionRange(start + val.length, start + val.length)
+    })
   }
 
   const insertPrice = (label: string, value: number) => {
-    setExpr((prev) => prev + value.toString())
+    const valStr = value.toString()
+    const input = inputRef.current
+    const start = input?.selectionStart ?? expr.length
+    const end = input?.selectionEnd ?? expr.length
+    const newExpr = expr.slice(0, start) + valStr + expr.slice(end)
+    setExpr(newExpr)
     setLastInserted(label)
-    try { tg?.HapticFeedback.impactOccurred('medium') } catch {}
-    // Clear highlight after a moment
     setTimeout(() => setLastInserted(null), 800)
+    try { tg?.HapticFeedback.impactOccurred('medium') } catch {}
+    requestAnimationFrame(() => {
+      input?.focus()
+      input?.setSelectionRange(start + valStr.length, start + valStr.length)
+    })
   }
 
   const clear = () => {
@@ -267,19 +290,55 @@ function CalculatorTab({ prices, tg }: { prices: PriceItem[]; tg: any }) {
     setResult('')
     setLastInserted(null)
     try { tg?.HapticFeedback.impactOccurred('medium') } catch {}
+    requestAnimationFrame(() => inputRef.current?.focus())
   }
 
   const backspace = () => {
-    setExpr((prev) => prev.slice(0, -1))
+    const input = inputRef.current
+    const start = input?.selectionStart ?? expr.length
+    const end = input?.selectionEnd ?? expr.length
+    let newExpr: string
+    let newPos: number
+    if (start !== end) {
+      newExpr = expr.slice(0, start) + expr.slice(end)
+      newPos = start
+    } else if (start > 0) {
+      newExpr = expr.slice(0, start - 1) + expr.slice(start)
+      newPos = start - 1
+    } else {
+      return
+    }
+    setExpr(newExpr)
     setLastInserted(null)
     try { tg?.HapticFeedback.impactOccurred('light') } catch {}
+    requestAnimationFrame(() => {
+      input?.focus()
+      input?.setSelectionRange(newPos, newPos)
+    })
+  }
+
+  const smartParen = () => {
+    const input = inputRef.current
+    const start = input?.selectionStart ?? expr.length
+    const before = expr.slice(0, start)
+    const open = (before.match(/\(/g) || []).length
+    const close = (before.match(/\)/g) || []).length
+    const last = before.trimEnd().slice(-1)
+    const insertClose = open > close && /[\d.)%]/.test(last)
+    insertAtCursor(insertClose ? ')' : '(')
   }
 
   const calculate = () => {
     const res = safeEval(expr)
     if (res && res !== 'Ошибка') {
-      setExpr(res.replace(/\s/g, '').replace(/,/g, ''))
+      const cleaned = res.replace(/\s/g, '').replace(/,/g, '')
+      setExpr(cleaned)
       setResult('')
+      requestAnimationFrame(() => {
+        const input = inputRef.current
+        input?.focus()
+        input?.setSelectionRange(cleaned.length, cleaned.length)
+      })
     }
     try { tg?.HapticFeedback.notificationOccurred('success') } catch {}
   }
@@ -289,54 +348,48 @@ function CalculatorTab({ prices, tg }: { prices: PriceItem[]; tg: any }) {
   return (
     <motion.div
       key="calc"
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-      transition={{ duration: 0.2 }}
-      className="p-5 flex flex-col"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      // fixed overlay — fills screen from top to just above the tab bar
+      className="fixed inset-x-0 top-0 z-40 bg-dark-900 flex flex-col p-4 gap-2"
+      style={{ bottom: '76px' }}
     >
-      <h1 className="text-2xl font-extrabold mb-1">Калькулятор 🧮</h1>
-      <p className="text-gray-500 text-sm mb-4">Подставляй цены предприятий и заводов</p>
+      {/* Title */}
+      <div className="shrink-0">
+        <h1 className="text-xl font-extrabold">Калькулятор 🧮</h1>
+        <p className="text-gray-500 text-xs">Подставляй цены предприятий и заводов</p>
+      </div>
 
-      {/* Quick-insert price chips */}
+      {/* Quick-insert chips — single horizontal scroll row, no wrapping */}
       {prices.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-4"
-        >
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Быстрая подстановка</div>
-          <div className="flex flex-wrap gap-1.5">
+        <div className="shrink-0">
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">Быстрая подстановка</div>
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
             {prices.map((p) => (
               <div key={p.id} className="contents">
-                {/* Enterprise price chip */}
                 <motion.button
                   whileTap={{ scale: 0.9 }}
                   onClick={() => insertPrice(`${p.emoji} ${p.name}`, p.price)}
-                  className={`
-                    flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
-                    transition-all duration-200
-                    ${lastInserted === `${p.emoji} ${p.name}`
+                  className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                    lastInserted === `${p.emoji} ${p.name}`
                       ? 'bg-accent-blue/20 border-accent-blue/40 text-accent-blue border'
-                      : 'glass border border-transparent hover:border-white/10 text-gray-300'}
-                  `}
+                      : 'glass border border-transparent hover:border-white/10 text-gray-300'
+                  }`}
                 >
                   <span>{p.emoji}</span>
                   <span className="max-w-[60px] truncate">{p.name}</span>
                   <span className="text-[10px] text-gray-500 font-mono">${p.price.toLocaleString()}</span>
                 </motion.button>
-
-                {/* Factory price chip */}
                 <motion.button
                   whileTap={{ scale: 0.9 }}
                   onClick={() => insertPrice(`🏭 ${p.name}`, p.factory_price)}
-                  className={`
-                    flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium
-                    transition-all duration-200
-                    ${lastInserted === `🏭 ${p.name}`
+                  className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                    lastInserted === `🏭 ${p.name}`
                       ? 'bg-accent-gold/20 border-accent-gold/40 text-accent-gold border'
-                      : 'glass border border-transparent hover:border-white/10 text-gray-400'}
-                  `}
+                      : 'glass border border-transparent hover:border-white/10 text-gray-400'
+                  }`}
                 >
                   <Factory size={11} />
                   <span className="max-w-[60px] truncate">{p.name}</span>
@@ -345,97 +398,96 @@ function CalculatorTab({ prices, tg }: { prices: PriceItem[]; tg: any }) {
               </div>
             ))}
           </div>
-        </motion.div>
+        </div>
       )}
 
-      {/* Display */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-        className="glass rounded-2xl p-4 mb-4 min-h-[90px] flex flex-col justify-end overflow-hidden"
+      {/* Display — fixed total height, result uses opacity so layout never shifts */}
+      <div
+        className="glass rounded-2xl px-4 shrink-0 overflow-hidden cursor-text"
+        style={{ height: '80px' }}
+        onClick={() => inputRef.current?.focus()}
       >
-        {/* Expression */}
-        <div className="text-right text-gray-400 text-sm font-mono break-all leading-relaxed min-h-[20px]">
-          {expr || <span className="text-gray-600">0</span>}
+        {/* Expression row */}
+        <div className="h-9 flex items-center">
+          <input
+            ref={inputRef}
+            type="text"
+            inputMode="none"
+            value={expr}
+            onChange={e => setExpr(e.target.value)}
+            placeholder="0"
+            className="w-full bg-transparent border-0 text-right text-gray-400 text-sm font-mono outline-none ring-0 focus:ring-0 focus:border-0 focus:outline-none caret-accent-blue placeholder-gray-600 select-text"
+          />
         </div>
-        {/* Result preview */}
-        <AnimatePresence mode="wait">
-          {result && (
-            <motion.div
-              key={result}
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -5 }}
-              className={`text-right font-mono font-black mt-1 ${
-                result === 'Ошибка' ? 'text-red-400 text-lg' : 'text-white text-2xl'
-              }`}
-            >
-              {result === 'Ошибка' ? result : `= ${result}`}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
+        {/* Divider */}
+        <div className="h-px bg-white/5" />
+        {/* Result row — always same height, opacity-only transition */}
+        <div className="h-10 flex items-center justify-end">
+          <span
+            className={`font-mono font-black text-xl leading-none transition-opacity duration-100 ${
+              result ? 'opacity-100' : 'opacity-0'
+            } ${result === 'Ошибка' ? 'text-red-400' : 'text-white'}`}
+          >
+            {result && result !== 'Ошибка' ? `= ${result}` : result || '='}
+          </span>
+        </div>
+      </div>
 
-      {/* Keypad */}
-      <motion.div
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="grid grid-cols-4 gap-2"
-      >
-        {/* Row 1 */}
-        <motion.button whileTap={{ scale: 0.9 }} onClick={clear}
-          className={`${btnClass} bg-red-500/15 text-red-400 h-12`}>C</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('(')}
-          className={`${btnClass} bg-dark-700 text-gray-300 h-12`}>(</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append(')')}
-          className={`${btnClass} bg-dark-700 text-gray-300 h-12`}>)</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('/')}
-          className={`${btnClass} bg-accent-blue/15 text-accent-blue h-12`}>÷</motion.button>
-
-        {/* Row 2 */}
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('7')}
-          className={`${btnClass} bg-dark-700/60 text-white h-12`}>7</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('8')}
-          className={`${btnClass} bg-dark-700/60 text-white h-12`}>8</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('9')}
-          className={`${btnClass} bg-dark-700/60 text-white h-12`}>9</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('*')}
-          className={`${btnClass} bg-accent-blue/15 text-accent-blue h-12`}>×</motion.button>
-
-        {/* Row 3 */}
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('4')}
-          className={`${btnClass} bg-dark-700/60 text-white h-12`}>4</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('5')}
-          className={`${btnClass} bg-dark-700/60 text-white h-12`}>5</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('6')}
-          className={`${btnClass} bg-dark-700/60 text-white h-12`}>6</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('-')}
-          className={`${btnClass} bg-accent-blue/15 text-accent-blue h-12`}>−</motion.button>
-
-        {/* Row 4 */}
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('1')}
-          className={`${btnClass} bg-dark-700/60 text-white h-12`}>1</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('2')}
-          className={`${btnClass} bg-dark-700/60 text-white h-12`}>2</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('3')}
-          className={`${btnClass} bg-dark-700/60 text-white h-12`}>3</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('+')}
-          className={`${btnClass} bg-accent-blue/15 text-accent-blue h-12`}>+</motion.button>
-
-        {/* Row 5 */}
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('0')}
-          className={`${btnClass} bg-dark-700/60 text-white h-12`}>0</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={() => append('.')}
-          className={`${btnClass} bg-dark-700/60 text-white h-12`}>.</motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={backspace}
-          className={`${btnClass} bg-dark-700/60 text-gray-400 h-12`}>
-          <Delete size={18} />
-        </motion.button>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={calculate}
-          className={`${btnClass} bg-accent-green/20 text-accent-green font-bold h-12`}>=</motion.button>
-      </motion.div>
+      {/* Keypad — flex-1, 5 equal rows that fill remaining space */}
+      <div className="flex-1 flex flex-col gap-2 min-h-0">
+        <div className="flex-1 flex gap-2">
+          <motion.button whileTap={{ scale: 0.95 }} onClick={clear}
+            className={`${btnClass} flex-1 bg-red-500/15 text-red-400`}>C</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={smartParen}
+            className={`${btnClass} flex-1 bg-dark-700 text-gray-300`}>( )</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('%')}
+            className={`${btnClass} flex-1 bg-accent-gold/15 text-accent-gold`}>%</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('/')}
+            className={`${btnClass} flex-1 bg-accent-blue/15 text-accent-blue`}>÷</motion.button>
+        </div>
+        <div className="flex-1 flex gap-2">
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('7')}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-white`}>7</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('8')}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-white`}>8</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('9')}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-white`}>9</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('*')}
+            className={`${btnClass} flex-1 bg-accent-blue/15 text-accent-blue`}>×</motion.button>
+        </div>
+        <div className="flex-1 flex gap-2">
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('4')}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-white`}>4</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('5')}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-white`}>5</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('6')}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-white`}>6</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('-')}
+            className={`${btnClass} flex-1 bg-accent-blue/15 text-accent-blue`}>−</motion.button>
+        </div>
+        <div className="flex-1 flex gap-2">
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('1')}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-white`}>1</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('2')}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-white`}>2</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('3')}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-white`}>3</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('+')}
+            className={`${btnClass} flex-1 bg-accent-blue/15 text-accent-blue`}>+</motion.button>
+        </div>
+        <div className="flex-1 flex gap-2">
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('0')}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-white`}>0</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={() => insertAtCursor('.')}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-white`}>.</motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={backspace}
+            className={`${btnClass} flex-1 bg-dark-700/60 text-gray-400`}>
+            <Delete size={18} />
+          </motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} onClick={calculate}
+            className={`${btnClass} flex-1 bg-accent-green/20 text-accent-green font-bold`}>=</motion.button>
+        </div>
+      </div>
     </motion.div>
   )
 }
@@ -451,6 +503,11 @@ export default function MiniApp() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [activeNotifs, setActiveNotifs] = useState<InAppNotification[]>([])
+
+  // Persistent calculator state (survives tab switches)
+  const [calcExpr, setCalcExpr] = useState('')
+  const [calcResult, setCalcResult] = useState('')
+  const [calcLastInserted, setCalcLastInserted] = useState<string | null>(null)
 
   const tg = window.Telegram?.WebApp
 
@@ -740,8 +797,8 @@ export default function MiniApp() {
                   </motion.h1>
                   <div className="flex items-center gap-2 mt-1">
                     <div className="flex items-center gap-1.5 text-sm text-gray-500">
-                      <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
-                      Цикл <span className="font-mono font-semibold text-white">{player.current_cycle}</span>
+                      <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+                      Цикл <span className="font-mono font-bold text-white text-base">{player.current_cycle}</span>
                     </div>
                   </div>
                 </div>
@@ -778,7 +835,7 @@ export default function MiniApp() {
                     $<AnimatedMoney value={Math.round(player.money)} />
                   </div>
 
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-green/10 border border-accent-green/20">
                       <TrendingUp size={14} className="text-accent-green" />
                       <span className="text-sm font-semibold text-accent-green font-mono">
@@ -786,6 +843,14 @@ export default function MiniApp() {
                       </span>
                       <span className="text-xs text-accent-green/60">/цикл</span>
                     </div>
+                    {player.prev_cycle_income !== undefined && player.prev_cycle_income > 0 && (
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
+                        <span className="text-xs text-gray-400">Прошлый цикл:</span>
+                        <span className="text-sm font-semibold text-white font-mono">
+                          +${player.prev_cycle_income.toLocaleString()}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -1045,18 +1110,14 @@ export default function MiniApp() {
                               </div>
                             </div>
                           </div>
-                          <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="grid grid-cols-1 gap-2 text-xs">
                             <div className="bg-dark-700/50 rounded-lg p-2">
-                              <div className="text-gray-500">Бюджет цели</div>
-                              <div className="font-mono text-white">${s.target_budget.toLocaleString()}</div>
-                            </div>
-                            <div className="bg-dark-700/50 rounded-lg p-2">
-                              <div className="text-gray-500">Доход/цикл</div>
+                              <div className="text-gray-500">Выручка/цикл</div>
                               <div className="font-mono text-accent-green">+${s.target_revenue_per_cycle.toLocaleString()}</div>
                             </div>
                           </div>
                           <div className="mt-2 text-[10px] text-gray-600">
-                            Расчёт: (${s.target_budget.toLocaleString()} + ${s.target_revenue_per_cycle.toLocaleString()} × {stockData.remaining_cycles} ц.) × {s.percentage}%
+                            Прогноз: выручка × {stockData.remaining_cycles} ц. × {s.percentage}%
                           </div>
                         </motion.div>
                       ))}
@@ -1083,7 +1144,14 @@ export default function MiniApp() {
           )}
 
           {/* ─── CALCULATOR TAB ─── */}
-          {tab === 'calc' && <CalculatorTab prices={prices} tg={tg} />}
+          {tab === 'calc' && (
+            <CalculatorTab
+              prices={prices} tg={tg}
+              expr={calcExpr} setExpr={setCalcExpr}
+              result={calcResult} setResult={setCalcResult}
+              lastInserted={calcLastInserted} setLastInserted={setCalcLastInserted}
+            />
+          )}
 
           {/* ─── RULES TAB ─── */}
           {tab === 'rules' && (

@@ -282,6 +282,8 @@ async def advance_cycle(db: Session = Depends(get_db)):
                 details.append(f"{ent.emoji} {ent.name}: +${effective:,.0f}{mod_text}")
 
         player.money = round(player.money + income, 2)
+        # Store last cycle income for player profile display
+        _set_setting(db, f"last_cycle_income_{player.id}", str(round(income, 2)))
 
         # Notification
         detail_text = "\n".join(details)
@@ -313,6 +315,9 @@ async def advance_cycle(db: Session = Depends(get_db)):
         msg_lines.append(f"💵  Баланс:  <b>${player.money:,.0f}</b>")
         if player.telegram_id:
             await send_telegram_message(player.telegram_id, "\n".join(msg_lines))
+
+    # Track which cycle income was last paid (for finish_game guard)
+    _set_setting(db, "last_income_cycle", str(current_cycle))
 
     # Decrement event remaining_cycles
     for event in active_events:
@@ -350,11 +355,31 @@ async def finish_game(db: Session = Depends(get_db)):
     Then stocks are settled: each stock holder gets % of target player's final budget.
     """
     current_cycle = int(_get_setting(db, "current_cycle", "0"))
+    last_income_cycle = int(_get_setting(db, "last_income_cycle", "0"))
 
     # Get active events
     active_events = db.query(Event).filter(Event.is_active == True, Event.remaining_cycles > 0).all()
 
     players = db.query(Player).all()
+
+    # Step 0: Pay regular cycle income for current_cycle if advance_cycle wasn't called for it
+    if last_income_cycle < current_cycle:
+        for player in players:
+            income = 0.0
+            details = []
+            for pe in player.enterprises:
+                ent = pe.enterprise
+                if current_cycle % ent.profit_cycle_interval == 0:
+                    base_profit = ent.profit * (1 + pe.factory_count * ent.factory_profit_percent / 100)
+                    event_mod = _get_event_modifier(ent.id, active_events)
+                    effective = base_profit * event_mod
+                    income += effective
+                    details.append(f"{ent.emoji} {ent.name}: +${effective:,.0f}")
+            if income > 0:
+                player.money = round(player.money + income, 2)
+                _set_setting(db, f"last_cycle_income_{player.id}", str(round(income, 2)))
+        _set_setting(db, "last_income_cycle", str(current_cycle))
+        db.commit()
 
     # Step 1: Proportional payout for enterprises with interval > 1
     for player in players:
@@ -545,15 +570,23 @@ def remove_factory(player_id: int, enterprise_id: int, data: FactoryAdjust, db: 
     ).first()
     if not pe:
         raise HTTPException(404, "Player enterprise not found")
+
+    removed = min(data.count, pe.factory_count)
     pe.factory_count = max(0, pe.factory_count - data.count)
 
     enterprise = db.query(Enterprise).filter(Enterprise.id == enterprise_id).first()
     ent_name = enterprise.name if enterprise else "предприятие"
 
+    # Refund factory cost
+    player = db.query(Player).filter(Player.id == player_id).first()
+    refund = (enterprise.factory_price * removed) if enterprise else 0
+    if player and refund > 0:
+        player.money = round(player.money + refund, 2)
+
     _create_notification(
         db, player_id, "factory", "🔧",
         "Завод убран",
-        f"-{data.count} завод у {ent_name}\nОсталось заводов: {pe.factory_count}",
+        f"-{removed} завод у {ent_name}, возврат: +${refund:,.0f}\nОсталось заводов: {pe.factory_count}",
     )
 
     db.commit()
@@ -831,6 +864,7 @@ async def reset_game(db: Session = Depends(get_db)):
 
     # Reset game finished flag
     _set_setting(db, "game_finished", "false")
+    _set_setting(db, "last_income_cycle", "0")
 
     # Reset timers
     _set_setting(db, "timer_running", "false")
