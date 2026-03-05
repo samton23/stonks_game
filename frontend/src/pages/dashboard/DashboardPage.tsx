@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
-import { Crown, Factory, Building2, Trophy, Zap, QrCode, X, Timer, RefreshCw } from 'lucide-react'
+import { Crown, Factory, Building2, Trophy, Zap, QrCode, X, Timer, RefreshCw, Star } from 'lucide-react'
 import { getDashboard, getRoomCode, getTimers } from '../../api'
 import type { DashboardData, DashboardPlayer, ActiveEventInfo } from '../../types'
 
@@ -265,7 +265,9 @@ export default function DashboardPage() {
                 </h1>
                 <p className="text-gray-500 text-sm mt-0.5">
                   {gameFinished ? 'Итоговый рейтинг' : 'Рейтинг игроков'}
-                  {data && <span className="ml-2 text-gray-600">· Цикл {data.current_cycle}/{data.total_cycles}</span>}
+                  {data && !gameFinished && (
+                    <span className="ml-2 text-gray-600">· Цикл {data.current_cycle}/{data.total_cycles}</span>
+                  )}
                 </p>
               </div>
               <div className="ml-auto flex items-center gap-3">
@@ -319,6 +321,83 @@ export default function DashboardPage() {
               <EventsPanel events={activeEvents} />
             </motion.div>
           )}
+
+          {/* Game Over animation */}
+          <AnimatePresence>
+            {gameFinished && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.7 }}
+                className="flex-1 flex flex-col items-center justify-center text-center gap-6 py-6"
+              >
+                {/* Trophy */}
+                <motion.div
+                  initial={{ scale: 0, rotate: -30 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ type: 'spring', damping: 10, stiffness: 80, delay: 0.15 }}
+                >
+                  <motion.div
+                    animate={{ y: [0, -14, 0], rotate: [0, -4, 4, 0] }}
+                    transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
+                    className="text-[110px] leading-none select-none"
+                  >
+                    🏆
+                  </motion.div>
+                </motion.div>
+
+                {/* Title */}
+                <motion.div
+                  initial={{ opacity: 0, y: 24 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4, duration: 0.6 }}
+                  className="space-y-2"
+                >
+                  <div className="text-5xl font-black tracking-tight">
+                    <span className="bg-clip-text text-transparent bg-gradient-to-r from-accent-gold via-yellow-200 to-amber-400">
+                      ИГРА ЗАВЕРШЕНА
+                    </span>
+                  </div>
+                  {players[0] && (
+                    <div className="text-gray-400 text-lg">
+                      Победитель:{' '}
+                      <span className="text-yellow-300 font-bold">{players[0].name}</span>
+                    </div>
+                  )}
+                </motion.div>
+
+                {/* Winner score pill */}
+                {players[0] && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.7 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.7, type: 'spring', damping: 14 }}
+                    className="flex items-center gap-3 px-7 py-3.5 rounded-2xl bg-accent-gold/10 border border-accent-gold/30"
+                  >
+                    <Star size={18} className="text-accent-gold" />
+                    <span className="font-mono font-black text-2xl text-accent-gold">
+                      ${Math.round(players[0].money).toLocaleString()}
+                    </span>
+                  </motion.div>
+                )}
+
+                {/* Floating stars */}
+                <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                  {[...Array(6)].map((_, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, y: 60 }}
+                      animate={{ opacity: [0, 0.6, 0], y: -80, x: (i % 2 === 0 ? 1 : -1) * (20 + i * 15) }}
+                      transition={{ delay: 0.8 + i * 0.15, duration: 2.5, ease: 'easeOut', repeat: Infinity, repeatDelay: 3 + i * 0.5 }}
+                      className="absolute bottom-1/3 left-1/2 text-xl select-none"
+                    >
+                      {['⭐', '✨', '🌟', '💫', '⭐', '✨'][i]}
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Footer */}
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="mt-auto pt-8 text-gray-700 text-xs">

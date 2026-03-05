@@ -307,7 +307,7 @@ export default function GameControlPage() {
         <div>
           <div className="text-sm text-gray-500 uppercase tracking-wider mb-1">Текущий цикл</div>
           <div className="text-5xl font-bold font-mono text-gradient from-accent-green to-accent-blue">
-            {state.current_cycle}
+            {state.game_finished ? state.total_cycles : state.current_cycle}
             <span className="text-lg text-gray-500 font-normal ml-2">/ {state.total_cycles}</span>
           </div>
           {state.game_finished && (
