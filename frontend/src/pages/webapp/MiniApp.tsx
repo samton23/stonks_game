@@ -791,10 +791,11 @@ export default function MiniApp() {
                   >
                     Привет, <span className="text-gradient from-accent-blue to-accent-purple">{player.name}</span>! 👋
                   </motion.h1>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="flex items-center gap-1.5 text-sm text-gray-500">
-                      <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-                      Цикл <span className="font-mono font-bold text-white text-base">{player.current_cycle}</span>
+                  <div className="flex items-center gap-2 mt-2">
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent-blue/10 border border-accent-blue/20">
+                      <span className="w-1.5 h-1.5 rounded-full bg-accent-blue animate-pulse shrink-0" />
+                      <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Цикл</span>
+                      <span className="font-mono font-extrabold text-accent-blue text-xl leading-none">{player.current_cycle}</span>
                     </div>
                   </div>
                 </div>
