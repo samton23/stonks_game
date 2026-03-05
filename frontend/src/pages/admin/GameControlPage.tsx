@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Gamepad2, PlayCircle, Plus, Minus, DollarSign, Send,
-  ChevronDown, Trash2, Building2, Play, Pause, RotateCcw, Flag
+  ChevronDown, Trash2, Building2, Play, Pause, RotateCcw, Flag, Lock
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -216,6 +216,7 @@ export default function GameControlPage() {
 
   const isRunning = timerData?.timer_running ?? false
   const cycleExpired = cycleRemaining <= 0 && timerData !== null
+  const isZeroCycle = state.current_cycle === 0
 
   return (
     <div>
@@ -421,15 +422,22 @@ export default function GameControlPage() {
                         {/* Enterprises */}
                         <div>
                           <div className="flex items-center justify-between mb-3">
-                            <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+                            <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
                               Предприятия
+                              {isZeroCycle && (
+                                <span className="flex items-center gap-1 text-amber-400 text-xs font-normal normal-case">
+                                  <Lock size={11} />
+                                  заблокировано на цикле 0
+                                </span>
+                              )}
                             </h4>
                             <div className="relative">
                               <button
                                 onClick={() => setShowAddEnterprise(
                                   showAddEnterprise === player.id ? null : player.id
                                 )}
-                                className="px-3 py-1.5 bg-accent-blue/10 hover:bg-accent-blue/20 text-accent-blue rounded-lg text-sm flex items-center gap-1.5"
+                                disabled={isZeroCycle}
+                                className="px-3 py-1.5 bg-accent-blue/10 hover:bg-accent-blue/20 text-accent-blue rounded-lg text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                               >
                                 <Plus size={14} />
                                 Добавить
@@ -491,7 +499,8 @@ export default function GameControlPage() {
                                           pe.enterprise_id,
                                           Math.max(1, parseInt(factoryInputs[`${player.id}-${pe.enterprise_id}`] || '1') || 1),
                                         )}
-                                        className="w-7 h-7 rounded-lg bg-dark-600 hover:bg-accent-red/20 hover:text-accent-red flex items-center justify-center text-gray-400"
+                                        disabled={isZeroCycle}
+                                        className="w-7 h-7 rounded-lg bg-dark-600 hover:bg-accent-red/20 hover:text-accent-red flex items-center justify-center text-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
                                         title="Убрать заводов"
                                       >
                                         <Minus size={14} />
@@ -516,7 +525,8 @@ export default function GameControlPage() {
                                           pe.enterprise_id,
                                           Math.max(1, parseInt(factoryInputs[`${player.id}-${pe.enterprise_id}`] || '1') || 1),
                                         )}
-                                        className="w-7 h-7 rounded-lg bg-dark-600 hover:bg-accent-green/20 hover:text-accent-green flex items-center justify-center text-gray-400"
+                                        disabled={isZeroCycle}
+                                        className="w-7 h-7 rounded-lg bg-dark-600 hover:bg-accent-green/20 hover:text-accent-green flex items-center justify-center text-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
                                         title="Добавить заводов"
                                       >
                                         <Plus size={14} />
@@ -524,7 +534,8 @@ export default function GameControlPage() {
                                     </div>
                                     <button
                                       onClick={() => handleRemoveEnterprise(player.id, pe.enterprise_id)}
-                                      className="p-1.5 hover:bg-accent-red/10 hover:text-accent-red rounded-lg text-gray-500"
+                                      disabled={isZeroCycle}
+                                      className="p-1.5 hover:bg-accent-red/10 hover:text-accent-red rounded-lg text-gray-500 disabled:opacity-40 disabled:cursor-not-allowed"
                                     >
                                       <Trash2 size={16} />
                                     </button>

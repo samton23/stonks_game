@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Zap, Plus, Trash2, Save, X, Play, Pause, AlertCircle, Shuffle } from 'lucide-react'
+import { Zap, Plus, Trash2, Save, X, Play, Pause, AlertCircle, Shuffle, Lock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   getEvents, getEnterprises, createEvent, updateEvent, deleteEvent,
-  activateEvent, deactivateEvent, randomEvent,
+  activateEvent, deactivateEvent, randomEvent, getGameState,
 } from '../../api'
 import type { GameEvent, Enterprise } from '../../types'
 
@@ -21,14 +21,18 @@ export default function EventsPage() {
     duration_cycles: 1,
   })
   const [selectedEnterprises, setSelectedEnterprises] = useState<number[]>([])
+  const [currentCycle, setCurrentCycle] = useState<number | null>(null)
 
   const load = async () => {
     try {
-      const [ev, ents] = await Promise.all([getEvents(), getEnterprises()])
+      const [ev, ents, gs] = await Promise.all([getEvents(), getEnterprises(), getGameState()])
       setEvents(ev)
       setEnterprises(ents)
+      setCurrentCycle(gs.current_cycle)
     } catch (e: any) { toast.error(e.message) }
   }
+
+  const isBlocked = currentCycle === 0
 
   useEffect(() => { load() }, [])
 
@@ -148,20 +152,37 @@ export default function EventsPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={handleRandomEvent}
-            className="px-5 py-2.5 bg-accent-purple/10 hover:bg-accent-purple/20 text-accent-purple border border-accent-purple/20 rounded-lg font-medium flex items-center gap-2"
+            disabled={isBlocked}
+            className="px-5 py-2.5 bg-accent-purple/10 hover:bg-accent-purple/20 text-accent-purple border border-accent-purple/20 rounded-lg font-medium flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Shuffle size={18} />
             Случайное
           </button>
           <button
             onClick={() => { resetForm(); setShowForm(true) }}
-            className="px-5 py-2.5 bg-yellow-500 hover:bg-yellow-400 text-dark-900 rounded-lg font-medium flex items-center gap-2"
+            disabled={isBlocked}
+            className="px-5 py-2.5 bg-yellow-500 hover:bg-yellow-400 text-dark-900 rounded-lg font-medium flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Plus size={18} />
             Создать событие
           </button>
         </div>
       </div>
+
+      {/* Cycle-0 block banner */}
+      {isBlocked && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 px-5 py-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3 text-amber-400"
+        >
+          <Lock size={18} className="shrink-0" />
+          <span className="text-sm">
+            На <strong>нулевом цикле</strong> управление событиями заблокировано.
+            Нажмите «Следующий цикл» на странице Ход игры, чтобы начать игру.
+          </span>
+        </motion.div>
+      )}
 
       {/* Form */}
       <AnimatePresence>
@@ -338,7 +359,8 @@ export default function EventsPage() {
                   <div className="flex items-center gap-2 shrink-0 ml-4">
                     <button
                       onClick={() => handleToggleActive(ev)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-all ${
+                      disabled={isBlocked}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                         ev.is_active
                           ? 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400'
                           : 'bg-accent-green/10 hover:bg-accent-green/20 text-accent-green'
@@ -349,13 +371,15 @@ export default function EventsPage() {
                     </button>
                     <button
                       onClick={() => handleEdit(ev)}
-                      className="px-3 py-2 bg-dark-600 hover:bg-dark-500 text-gray-400 rounded-lg text-sm"
+                      disabled={isBlocked}
+                      className="px-3 py-2 bg-dark-600 hover:bg-dark-500 text-gray-400 rounded-lg text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       Ред.
                     </button>
                     <button
                       onClick={() => handleDelete(ev.id, ev.name)}
-                      className="p-2 hover:bg-accent-red/10 hover:text-accent-red rounded-lg text-gray-500"
+                      disabled={isBlocked}
+                      className="p-2 hover:bg-accent-red/10 hover:text-accent-red rounded-lg text-gray-500 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <Trash2 size={16} />
                     </button>
