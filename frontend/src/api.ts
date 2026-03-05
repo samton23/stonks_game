@@ -95,8 +95,13 @@ export const randomEvent = () =>
 export const getActiveEvents = () => request('/events/active');
 
 // History
-export const getHistory = (playerId?: number) =>
-  request(`/history${playerId !== undefined ? `?player_id=${playerId}` : ''}`);
+export const getHistory = (playerId?: number, includeSystem = false) => {
+  const params = new URLSearchParams()
+  if (playerId !== undefined) params.set('player_id', String(playerId))
+  if (includeSystem) params.set('include_system', 'true')
+  const qs = params.toString()
+  return request(`/history${qs ? `?${qs}` : ''}`)
+};
 
 // Dashboard
 export const getDashboard = () => request('/game/dashboard');

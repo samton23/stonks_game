@@ -517,13 +517,12 @@ export default function GameControlPage() {
                                             [`${player.id}-${pe.enterprise_id}`]: val,
                                           }))
                                         }}
-                                        onKeyDown={(e) => {
+                                        onKeyDown={async (e) => {
                                           if (e.key === 'Enter') {
-                                            handleAddFactory(
-                                              player.id,
-                                              pe.enterprise_id,
-                                              Math.max(1, parseInt(factoryInputs[`${player.id}-${pe.enterprise_id}`] || '1') || 1),
-                                            )
+                                            const key = `${player.id}-${pe.enterprise_id}`
+                                            const count = Math.max(1, parseInt(factoryInputs[key] || '1') || 1)
+                                            setFactoryInputs(p => ({ ...p, [key]: '1' }))
+                                            await handleAddFactory(player.id, pe.enterprise_id, count)
                                           }
                                         }}
                                         className="w-16 h-7 text-center bg-dark-600 border border-white/10 rounded-lg text-sm font-mono focus:outline-none focus:border-accent-green/50"

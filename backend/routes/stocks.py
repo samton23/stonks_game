@@ -311,13 +311,27 @@ async def transfer_stock(data: StockTransfer, db: Session = Depends(get_db)):
     # Determine names for log entry
     from_name = "Банк" if from_is_bank else (from_player.name if from_player else f"id:{from_id}")
     to_name = "Банк" if to_is_bank else (to_player.name if to_player else f"id:{to_id}")
-    log_player_id = to_id if not to_is_bank else (from_id if not from_is_bank else None)
-    log_player_name = to_name if not to_is_bank else (from_name if not from_is_bank else None)
+    # Amount sign: negative = player spends money, positive = player receives money
+    if from_is_bank:
+        # Bank → Player: player buys (spending) → negative
+        log_player_id = to_id if not to_is_bank else None
+        log_player_name = to_name if not to_is_bank else None
+        log_amount = -total_cost
+    elif to_is_bank:
+        # Player → Bank: player sells (receiving) → positive
+        log_player_id = from_id if not from_is_bank else None
+        log_player_name = from_name if not from_is_bank else None
+        log_amount = total_cost
+    else:
+        # Player → Player: buyer (to_player) spends → negative
+        log_player_id = to_id
+        log_player_name = to_name
+        log_amount = -total_cost
     _log(db, "stock_transfer",
          f"{from_name} → {to_name}: {data.percentage}% акций {target.name} за ${total_cost:,.0f}",
-         player_id=log_player_id if log_player_id != 0 else None,
+         player_id=log_player_id if log_player_id and log_player_id != 0 else None,
          player_name=log_player_name,
-         amount=total_cost,
+         amount=log_amount,
          cycle=int(_get_setting(db, "current_cycle", "0")))
 
     db.commit()

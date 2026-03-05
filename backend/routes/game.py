@@ -345,6 +345,7 @@ async def advance_cycle(db: Session = Depends(get_db)):
         event.remaining_cycles -= 1
         if event.remaining_cycles <= 0:
             event.is_active = False
+            _log(db, "event_end", f"Событие завершилось: «{event.name}»", cycle=current_cycle)
 
     # Reset cycle timer
     is_running = _get_setting(db, "timer_running", "false") == "true"

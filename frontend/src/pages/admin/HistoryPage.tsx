@@ -17,6 +17,8 @@ const ACTION_CONFIG: Record<string, { emoji: string; label: string; color: strin
   stock_transfer:    { emoji: '📈', label: 'Акции',        color: 'text-accent-gold' },
   stock_settle:      { emoji: '🏦', label: 'Расчёт',       color: 'text-accent-gold' },
   cycle:             { emoji: '🔄', label: 'Цикл',         color: 'text-accent-blue' },
+  event_start:       { emoji: '⚡', label: 'Событие',      color: 'text-yellow-400' },
+  event_end:         { emoji: '✅', label: 'Событие↓',     color: 'text-gray-400' },
   game_start:        { emoji: '🎮', label: 'Старт',        color: 'text-accent-green' },
   game_end:          { emoji: '🏁', label: 'Конец',        color: 'text-accent-gold' },
 }
@@ -38,8 +40,9 @@ export default function HistoryPage() {
   const load = useCallback(async (quiet = false) => {
     try {
       if (!quiet) setLoading(true)
+      const includeSystem = activeTab !== null
       const [hist, gs] = await Promise.all([
-        getHistory(activeTab ?? undefined),
+        getHistory(activeTab ?? undefined, includeSystem),
         getGameState(),
       ])
       setLogs(hist)

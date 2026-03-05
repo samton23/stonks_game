@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   TrendingUp, Building2, Factory, ScrollText, DollarSign,
-  Wallet, RefreshCw, Calculator, Delete, BarChart2
+  Wallet, RefreshCw, Calculator, Delete, BarChart2, History
 } from 'lucide-react'
 import {
   webappAuth, webappAuthDev, getWebappRules, getWebappPrices,
@@ -11,10 +11,11 @@ import {
   getWebappStocks, getWebappStocksDev,
   webappAuthBrowser, getWebappNotificationsBrowser,
   markNotificationsReadBrowser, getWebappStocksBrowser,
+  getHistory,
 } from '../../api'
-import type { WebAppPlayer, PriceItem, InAppNotification, WebAppStockData } from '../../types'
+import type { WebAppPlayer, PriceItem, InAppNotification, WebAppStockData, GameLogEntry } from '../../types'
 
-type Tab = 'profile' | 'prices' | 'rules' | 'calc' | 'stocks'
+type Tab = 'profile' | 'prices' | 'rules' | 'calc' | 'stocks' | 'history'
 
 /* ───────── Animated number ───────── */
 function AnimatedMoney({ value }: { value: number }) {
@@ -93,6 +94,29 @@ const DEFAULT_STYLE = {
   border: 'border-gray-500/30',
   glow: 'shadow-gray-500/20',
   bar: 'bg-white/20',
+}
+
+/* ───────── History action config ───────── */
+const HISTORY_ACTION_CONFIG: Record<string, { emoji: string; label: string; color: string }> = {
+  income:            { emoji: '💰', label: 'Доход',        color: 'text-emerald-400' },
+  money_adj:         { emoji: '💵', label: 'Корр.',        color: 'text-blue-400' },
+  enterprise_buy:    { emoji: '🏭', label: 'Бизнес+',      color: 'text-purple-400' },
+  enterprise_remove: { emoji: '🗑️', label: 'Бизнес−',      color: 'text-gray-500' },
+  factory_buy:       { emoji: '🏗️', label: 'Завод+',       color: 'text-orange-400' },
+  factory_remove:    { emoji: '🔧', label: 'Завод−',       color: 'text-gray-500' },
+  stock_transfer:    { emoji: '📈', label: 'Акции',        color: 'text-yellow-400' },
+  stock_settle:      { emoji: '🏦', label: 'Расчёт',       color: 'text-yellow-400' },
+  cycle:             { emoji: '🔄', label: 'Цикл',         color: 'text-blue-400' },
+  event_start:       { emoji: '⚡', label: 'Событие',      color: 'text-yellow-300' },
+  event_end:         { emoji: '✅', label: 'Событие↓',     color: 'text-gray-500' },
+  game_start:        { emoji: '🎮', label: 'Старт',        color: 'text-emerald-400' },
+  game_end:          { emoji: '🏁', label: 'Конец',        color: 'text-yellow-400' },
+}
+
+function formatHistoryTs(ts: string): string {
+  const d = new Date(ts)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /* ───────── Single Notification Toast ───────── */
@@ -504,6 +528,10 @@ export default function MiniApp() {
   const [refreshing, setRefreshing] = useState(false)
   const [activeNotifs, setActiveNotifs] = useState<InAppNotification[]>([])
 
+  // History tab state
+  const [historyLogs, setHistoryLogs] = useState<GameLogEntry[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+
   // Persistent calculator state (survives tab switches)
   const [calcExpr, setCalcExpr] = useState('')
   const [calcResult, setCalcResult] = useState('')
@@ -670,6 +698,23 @@ export default function MiniApp() {
     try { tg?.HapticFeedback.selectionChanged() } catch {}
   }, [tab, tg])
 
+  // Load history on tab switch + auto-refresh every 5s when on history tab
+  useEffect(() => {
+    if (tab !== 'history' || !player) return
+    let cancelled = false
+    const load = () => {
+      if (cancelled) return
+      setHistoryLoading(true)
+      getHistory(player.id, true)
+        .then((d) => { if (!cancelled) setHistoryLogs(d) })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) setHistoryLoading(false) })
+    }
+    load()
+    const interval = setInterval(() => load(), 5000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [tab, player?.id])
+
   // ─── Loading State ───
   if (loading) {
     return (
@@ -745,7 +790,7 @@ export default function MiniApp() {
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'profile', label: 'Профиль', icon: <Wallet size={18} /> },
     { id: 'stocks', label: 'Акции', icon: <BarChart2 size={18} /> },
-    { id: 'prices', label: 'Цены', icon: <DollarSign size={18} /> },
+    { id: 'history', label: 'История', icon: <History size={18} /> },
     { id: 'calc', label: 'Расчёт', icon: <Calculator size={18} /> },
     { id: 'rules', label: 'Правила', icon: <ScrollText size={18} /> },
   ]
@@ -1173,6 +1218,79 @@ export default function MiniApp() {
                   {rules || 'Правила ещё не установлены.'}
                 </div>
               </motion.div>
+            </motion.div>
+          )}
+
+          {/* ─── HISTORY TAB ─── */}
+          {tab === 'history' && (
+            <motion.div
+              key="history"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.2 }}
+              className="p-5"
+            >
+              <h1 className="text-2xl font-extrabold mb-1">История 📜</h1>
+              <p className="text-gray-500 text-sm mb-5">Ваши действия и события игры</p>
+
+              {historyLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="w-8 h-8 border-2 border-accent-blue border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : historyLogs.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-center py-16 text-gray-600"
+                >
+                  <History size={40} className="mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">История пуста</p>
+                  <p className="text-xs mt-1 text-gray-700">Действия появятся после начала игры</p>
+                </motion.div>
+              ) : (
+                <div className="space-y-2">
+                  {historyLogs.map((entry, i) => {
+                    const cfg = HISTORY_ACTION_CONFIG[entry.action_type] ?? {
+                      emoji: '❓', label: entry.action_type, color: 'text-gray-500',
+                    }
+                    const pos = entry.amount !== null && entry.amount > 0
+                    const neg = entry.amount !== null && entry.amount < 0
+                    return (
+                      <motion.div
+                        key={entry.id}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: Math.min(i * 0.015, 0.25) }}
+                        className="glass rounded-xl px-3 py-2.5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-base shrink-0">{cfg.emoji}</span>
+                          <span className={`text-[10px] font-bold uppercase tracking-wider shrink-0 ${cfg.color}`}>
+                            {cfg.label}
+                          </span>
+                          {entry.cycle !== null && (
+                            <span className="text-[10px] text-gray-600 shrink-0">ц.{entry.cycle}</span>
+                          )}
+                          <span className="text-xs text-gray-600 font-mono ml-auto shrink-0">
+                            {formatHistoryTs(entry.timestamp)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-gray-300 flex-1 leading-snug">{entry.description}</span>
+                          {entry.amount !== null && (
+                            <span className={`text-sm font-mono font-bold shrink-0 ${
+                              pos ? 'text-emerald-400' : neg ? 'text-red-400' : 'text-gray-400'
+                            }`}>
+                              {pos ? '+' : ''}{entry.amount.toLocaleString('ru-RU', { maximumFractionDigits: 0 })}$
+                            </span>
+                          )}
+                        </div>
+                      </motion.div>
+                    )
+                  })}
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
