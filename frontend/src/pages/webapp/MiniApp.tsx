@@ -598,12 +598,8 @@ export default function MiniApp() {
       }
 
       if (notifs.length > 0) {
-        // Add to active display list (avoid duplicates)
-        setActiveNotifs((prev) => {
-          const existingIds = new Set(prev.map((n) => n.id))
-          const newOnes = notifs.filter((n) => !existingIds.has(n.id))
-          return [...prev, ...newOnes]
-        })
+        // Show only the latest notification — replaces any existing one
+        setActiveNotifs([notifs[notifs.length - 1]])
 
         // Mark as read on server
         const ids = notifs.map((n) => n.id)

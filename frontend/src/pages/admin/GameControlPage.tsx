@@ -171,10 +171,10 @@ export default function GameControlPage() {
     } catch (e: any) { toast.error(e.message) }
   }
 
-  const handleRemoveFactory = async (playerId: number, enterpriseId: number) => {
+  const handleRemoveFactory = async (playerId: number, enterpriseId: number, count = 1) => {
     try {
-      await removeFactory(playerId, enterpriseId)
-      toast.success('Завод убран')
+      await removeFactory(playerId, enterpriseId, count)
+      toast.success(count > 1 ? `-${count} заводов` : 'Завод убран')
       load()
     } catch (e: any) { toast.error(e.message) }
   }
@@ -355,7 +355,7 @@ export default function GameControlPage() {
       {/* Players */}
       <div className="space-y-4">
         <AnimatePresence>
-          {state.players.map((player, i) => {
+          {[...state.players].sort((a, b) => a.name.localeCompare(b.name, 'ru')).map((player, i) => {
             const isExpanded = expandedPlayer === player.id
             return (
               <motion.div
@@ -483,9 +483,13 @@ export default function GameControlPage() {
                                     <div className="flex items-center gap-2">
                                       <span className="text-xs text-gray-500">🏗</span>
                                       <button
-                                        onClick={() => handleRemoveFactory(player.id, pe.enterprise_id)}
+                                        onClick={() => handleRemoveFactory(
+                                          player.id,
+                                          pe.enterprise_id,
+                                          Math.max(1, parseInt(factoryInputs[`${player.id}-${pe.enterprise_id}`] || '1') || 1),
+                                        )}
                                         className="w-7 h-7 rounded-lg bg-dark-600 hover:bg-accent-red/20 hover:text-accent-red flex items-center justify-center text-gray-400"
-                                        title="Убрать 1 завод"
+                                        title="Убрать заводов"
                                       >
                                         <Minus size={14} />
                                       </button>
@@ -493,14 +497,18 @@ export default function GameControlPage() {
                                         {pe.factory_count}
                                       </span>
                                       <input
-                                        type="number"
-                                        min="1"
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
                                         value={factoryInputs[`${player.id}-${pe.enterprise_id}`] ?? '1'}
-                                        onChange={(e) => setFactoryInputs(p => ({
-                                          ...p,
-                                          [`${player.id}-${pe.enterprise_id}`]: e.target.value,
-                                        }))}
-                                        className="w-12 h-7 text-center bg-dark-600 border border-white/10 rounded-lg text-sm font-mono focus:outline-none focus:border-accent-green/50"
+                                        onChange={(e) => {
+                                          const val = e.target.value.replace(/\D/g, '')
+                                          setFactoryInputs(p => ({
+                                            ...p,
+                                            [`${player.id}-${pe.enterprise_id}`]: val === '' ? '1' : val,
+                                          }))
+                                        }}
+                                        className="w-16 h-7 text-center bg-dark-600 border border-white/10 rounded-lg text-sm font-mono focus:outline-none focus:border-accent-green/50"
                                       />
                                       <button
                                         onClick={() => handleAddFactory(
