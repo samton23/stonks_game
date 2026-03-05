@@ -189,7 +189,8 @@ export default function StocksPage() {
             <label className="block text-xs text-gray-500 mb-1.5">Цена за 10%</label>
             <input
               type="number"
-              value={price || defaultStockPrice}
+              value={price}
+              placeholder={defaultStockPrice}
               onChange={e => setPrice(e.target.value)}
               className="w-full bg-dark-600 border border-white/10 rounded-lg px-3 py-2 text-sm"
             />
