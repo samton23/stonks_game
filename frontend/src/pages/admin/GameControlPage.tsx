@@ -514,8 +514,17 @@ export default function GameControlPage() {
                                           const val = e.target.value.replace(/\D/g, '')
                                           setFactoryInputs(p => ({
                                             ...p,
-                                            [`${player.id}-${pe.enterprise_id}`]: val === '' ? '1' : val,
+                                            [`${player.id}-${pe.enterprise_id}`]: val,
                                           }))
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            handleAddFactory(
+                                              player.id,
+                                              pe.enterprise_id,
+                                              Math.max(1, parseInt(factoryInputs[`${player.id}-${pe.enterprise_id}`] || '1') || 1),
+                                            )
+                                          }
                                         }}
                                         className="w-16 h-7 text-center bg-dark-600 border border-white/10 rounded-lg text-sm font-mono focus:outline-none focus:border-accent-green/50"
                                       />
