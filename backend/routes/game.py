@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Player, Enterprise, PlayerEnterprise, GameSetting, Notification, PlayerStock, Event
+from models import Player, Enterprise, PlayerEnterprise, GameSetting, Notification, PlayerStock, Event, GameLog
 from schemas import MoneyAdjust, SendNotification, FactoryAdjust, DashboardPlayer
 from typing import List
 
@@ -60,6 +60,17 @@ def _set_setting(db: Session, key: str, value: str):
         db.add(setting)
     else:
         setting.value = value
+
+
+def _log(db: Session, action_type: str, description: str, player_id=None, player_name=None, amount=None, cycle=None):
+    db.add(GameLog(
+        action_type=action_type,
+        description=description,
+        player_id=player_id,
+        player_name=player_name,
+        amount=round(amount, 2) if amount is not None else None,
+        cycle=cycle,
+    ))
 
 
 def _calc_revenue(player: Player) -> float:
@@ -316,6 +327,16 @@ async def advance_cycle(db: Session = Depends(get_db)):
         if player.telegram_id:
             await send_telegram_message(player.telegram_id, "\n".join(msg_lines))
 
+        # Log income
+        if income > 0:
+            _log(db, "income",
+                 f"{player.name}: +${income:,.0f} (цикл {current_cycle})",
+                 player_id=player.id, player_name=player.name,
+                 amount=income, cycle=current_cycle)
+
+    # System log: cycle advanced
+    _log(db, "cycle", f"Цикл {current_cycle} начат", cycle=current_cycle)
+
     # Track which cycle income was last paid (for finish_game guard)
     _set_setting(db, "last_income_cycle", str(current_cycle))
 
@@ -381,6 +402,10 @@ async def finish_game(db: Session = Depends(get_db)):
         if income > 0:
             player.money = round(player.money + income, 2)
             _set_setting(db, f"last_cycle_income_{player.id}", str(round(income, 2)))
+            _log(db, "income",
+                 f"{player.name}: +${income:,.0f} (финальный цикл {current_cycle})",
+                 player_id=player.id, player_name=player.name,
+                 amount=income, cycle=current_cycle)
     _set_setting(db, "last_income_cycle", str(current_cycle))
     db.commit()
 
@@ -440,6 +465,13 @@ async def finish_game(db: Session = Depends(get_db)):
                 "Расчёт по акциям",
                 f"+${bonus:,.0f} от акций других игроков",
             )
+            _log(db, "stock_settle",
+                 f"{player.name}: +${bonus:,.0f} от акций других игроков",
+                 player_id=player.id, player_name=player.name,
+                 amount=bonus, cycle=current_cycle)
+
+    # System log: game end
+    _log(db, "game_end", f"Игра завершена (цикл {current_cycle})", cycle=current_cycle)
 
     # Mark game as finished
     _set_setting(db, "game_finished", "true")
@@ -506,6 +538,11 @@ def add_enterprise_to_player(player_id: int, enterprise_id: int, db: Session = D
         "Новое предприятие!",
         f"Вам добавлено: {enterprise.name}\n-${enterprise.price:,.0f} • Баланс: ${player.money:,.0f}",
     )
+    _log(db, "enterprise_buy",
+         f"{player.name}: куплено {enterprise.emoji}{enterprise.name} за ${enterprise.price:,.0f}",
+         player_id=player_id, player_name=player.name,
+         amount=-enterprise.price,
+         cycle=int(_get_setting(db, "current_cycle", "0")))
 
     db.commit()
     return {"ok": True}
@@ -523,6 +560,7 @@ def remove_enterprise_from_player(player_id: int, enterprise_id: int, db: Sessio
     enterprise = db.query(Enterprise).filter(Enterprise.id == enterprise_id).first()
     ent_name = enterprise.name if enterprise else "Предприятие"
 
+    player = db.query(Player).filter(Player.id == player_id).first()
     db.delete(pe)
 
     _create_notification(
@@ -530,6 +568,10 @@ def remove_enterprise_from_player(player_id: int, enterprise_id: int, db: Sessio
         "Предприятие убрано",
         f"Удалено: {ent_name}",
     )
+    _log(db, "enterprise_remove",
+         f"{player.name if player else f'Игрок {player_id}'}: убрано {ent_name}",
+         player_id=player_id, player_name=player.name if player else None,
+         cycle=int(_get_setting(db, "current_cycle", "0")))
 
     db.commit()
     return {"ok": True}
@@ -560,6 +602,12 @@ def add_factory(player_id: int, enterprise_id: int, data: FactoryAdjust, db: Ses
         "Новый завод!",
         f"+{data.count} завод для {ent_name}\n-${cost:,.0f} • Баланс: ${player.money:,.0f}" if player else f"+{data.count} завод для {ent_name}",
     )
+    if player:
+        _log(db, "factory_buy",
+             f"{player.name}: +{data.count} зав. [{ent_name}] за ${cost:,.0f}",
+             player_id=player_id, player_name=player.name,
+             amount=-cost,
+             cycle=int(_get_setting(db, "current_cycle", "0")))
 
     db.commit()
     return {"ok": True, "factory_count": pe.factory_count}
@@ -591,6 +639,12 @@ def remove_factory(player_id: int, enterprise_id: int, data: FactoryAdjust, db: 
         "Завод убран",
         f"-{removed} завод у {ent_name}, возврат: +${refund:,.0f}\nОсталось заводов: {pe.factory_count}",
     )
+    if player:
+        _log(db, "factory_remove",
+             f"{player.name}: -{removed} зав. [{ent_name}], возврат ${refund:,.0f}",
+             player_id=player_id, player_name=player.name,
+             amount=refund,
+             cycle=int(_get_setting(db, "current_cycle", "0")))
 
     db.commit()
     return {"ok": True, "factory_count": pe.factory_count}
@@ -618,6 +672,14 @@ async def adjust_money(player_id: int, data: MoneyAdjust, db: Session = Depends(
         msg += f"\n{data.reason}"
 
     _create_notification(db, player_id, ntype, emoji, title, msg)
+
+    # Log money adjustment
+    reason_suffix = f" — {data.reason}" if data.reason else ""
+    _log(db, "money_adj",
+         f"{player.name}: {sign}${data.amount:,.0f}{reason_suffix}",
+         player_id=player_id, player_name=player.name,
+         amount=data.amount,
+         cycle=int(_get_setting(db, "current_cycle", "0")))
 
     # Telegram message
     msg_lines = [
@@ -927,6 +989,9 @@ async def reset_game(db: Session = Depends(get_db)):
     import random, string
     new_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
     _set_setting(db, "room_code", new_code)
+
+    # Log game reset
+    _log(db, "game_start", "Игра сброшена", cycle=0)
 
     db.commit()
     return {"ok": True}

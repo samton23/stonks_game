@@ -95,3 +95,19 @@ class Event(Base):
     remaining_cycles = Column(Integer, default=0)
     is_active = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class GameLog(Base):
+    __tablename__ = "game_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    action_type = Column(String(50), index=True)
+    # income | money_adj | enterprise_buy | enterprise_remove |
+    # factory_buy | factory_remove | stock_transfer | stock_settle |
+    # cycle | game_start | game_end
+    player_id = Column(Integer, ForeignKey("players.id", ondelete="SET NULL"), nullable=True, index=True)
+    player_name = Column(String(255), nullable=True)  # денормализовано — остаётся после удаления игрока
+    amount = Column(Float, nullable=True)              # денежная дельта
+    description = Column(Text)
+    cycle = Column(Integer, nullable=True)

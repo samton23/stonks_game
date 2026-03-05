@@ -178,3 +178,14 @@ export interface InAppNotification {
   message: string;
   created_at: string | null;
 }
+
+export interface GameLogEntry {
+  id: number;
+  timestamp: string;
+  action_type: string;
+  player_id: number | null;
+  player_name: string | null;
+  amount: number | null;
+  description: string;
+  cycle: number | null;
+}

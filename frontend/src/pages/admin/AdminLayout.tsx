@@ -2,7 +2,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Users, Factory, ScrollText, Settings, DollarSign, Gamepad2, LayoutDashboard, Zap, BookOpen, TrendingUp, Clock
+  Users, Factory, ScrollText, Settings, DollarSign, Gamepad2, LayoutDashboard, Zap, BookOpen, TrendingUp, Clock, History
 } from 'lucide-react'
 import { getTimers } from '../../api'
 import type { TimerState } from '../../types'
@@ -86,6 +86,7 @@ const navItems = [
   { to: '/admin/prices', icon: DollarSign, label: 'Цены' },
   { to: '/admin/stocks', icon: TrendingUp, label: 'Акции' },
   { to: '/admin/events', icon: Zap, label: 'События' },
+  { to: '/admin/history', icon: History, label: 'История' },
   { to: '/admin/rules', icon: ScrollText, label: 'Правила' },
   { to: '/admin/host-rules', icon: BookOpen, label: 'Для ведущего' },
   { to: '/admin/settings', icon: Settings, label: 'Настройки' },

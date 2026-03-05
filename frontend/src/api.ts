@@ -94,6 +94,10 @@ export const randomEvent = () =>
   request('/events/random', { method: 'POST' });
 export const getActiveEvents = () => request('/events/active');
 
+// History
+export const getHistory = (playerId?: number) =>
+  request(`/history${playerId !== undefined ? `?player_id=${playerId}` : ''}`);
+
 // Dashboard
 export const getDashboard = () => request('/game/dashboard');
 
