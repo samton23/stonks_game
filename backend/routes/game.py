@@ -354,7 +354,6 @@ async def finish_game(db: Session = Depends(get_db)):
     Final tick: enterprises with cycle_interval > 1 pay proportional income.
     Then stocks are settled: each stock holder gets % of target player's final budget.
     """
-    current_cycle = int(_get_setting(db, "current_cycle", "0"))
     last_income_cycle = int(_get_setting(db, "last_income_cycle", "0"))
 
     # Get active events
@@ -362,24 +361,28 @@ async def finish_game(db: Session = Depends(get_db)):
 
     players = db.query(Player).all()
 
-    # Step 0: Pay regular cycle income for current_cycle if advance_cycle wasn't called for it
-    if last_income_cycle < current_cycle:
-        for player in players:
-            income = 0.0
-            details = []
-            for pe in player.enterprises:
-                ent = pe.enterprise
-                if current_cycle % ent.profit_cycle_interval == 0:
-                    base_profit = ent.profit * (1 + pe.factory_count * ent.factory_profit_percent / 100)
-                    event_mod = _get_event_modifier(ent.id, active_events)
-                    effective = base_profit * event_mod
-                    income += effective
-                    details.append(f"{ent.emoji} {ent.name}: +${effective:,.0f}")
-            if income > 0:
-                player.money = round(player.money + income, 2)
-                _set_setting(db, f"last_cycle_income_{player.id}", str(round(income, 2)))
-        _set_setting(db, "last_income_cycle", str(current_cycle))
-        db.commit()
+    # Step 0: Always advance one final cycle and pay income.
+    # This ensures the last round's revenue is applied whether or not
+    # the admin pressed "Next Cycle" before "Finish Game".
+    current_cycle = int(_get_setting(db, "current_cycle", "0")) + 1
+    _set_setting(db, "current_cycle", str(current_cycle))
+
+    for player in players:
+        income = 0.0
+        details = []
+        for pe in player.enterprises:
+            ent = pe.enterprise
+            if current_cycle % ent.profit_cycle_interval == 0:
+                base_profit = ent.profit * (1 + pe.factory_count * ent.factory_profit_percent / 100)
+                event_mod = _get_event_modifier(ent.id, active_events)
+                effective = base_profit * event_mod
+                income += effective
+                details.append(f"{ent.emoji} {ent.name}: +${effective:,.0f}")
+        if income > 0:
+            player.money = round(player.money + income, 2)
+            _set_setting(db, f"last_cycle_income_{player.id}", str(round(income, 2)))
+    _set_setting(db, "last_income_cycle", str(current_cycle))
+    db.commit()
 
     # Step 1: Proportional payout for enterprises with interval > 1
     for player in players:

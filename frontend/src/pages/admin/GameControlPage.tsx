@@ -482,6 +482,9 @@ export default function GameControlPage() {
                                   <div className="flex items-center gap-4">
                                     <div className="flex items-center gap-2">
                                       <span className="text-xs text-gray-500">🏗</span>
+                                      <span className="font-mono font-bold w-6 text-center">
+                                        {pe.factory_count}
+                                      </span>
                                       <button
                                         onClick={() => handleRemoveFactory(
                                           player.id,
@@ -493,9 +496,6 @@ export default function GameControlPage() {
                                       >
                                         <Minus size={14} />
                                       </button>
-                                      <span className="font-mono font-bold w-6 text-center">
-                                        {pe.factory_count}
-                                      </span>
                                       <input
                                         type="text"
                                         inputMode="numeric"
