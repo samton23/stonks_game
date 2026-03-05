@@ -10,6 +10,7 @@ import GameControlPage from './pages/admin/GameControlPage'
 import EventsPage from './pages/admin/EventsPage'
 import HostRulesPage from './pages/admin/HostRulesPage'
 import StocksPage from './pages/admin/StocksPage'
+import HistoryPage from './pages/admin/HistoryPage'
 import DashboardPage from './pages/dashboard/DashboardPage'
 import MiniApp from './pages/webapp/MiniApp'
 import JoinPage from './pages/join/JoinPage'
@@ -44,6 +45,7 @@ function App() {
           <Route path="game" element={<GameControlPage />} />
           <Route path="events" element={<EventsPage />} />
           <Route path="stocks" element={<StocksPage />} />
+          <Route path="history" element={<HistoryPage />} />
           <Route path="host-rules" element={<HostRulesPage />} />
         </Route>
         <Route path="/dashboard" element={<DashboardPage />} />

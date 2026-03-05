@@ -156,6 +156,7 @@ export interface WebAppPlayer {
   revenue: number;
   current_cycle: number;
   enterprises: PlayerEnterprise[];
+  prev_cycle_income?: number;
 }
 
 export interface PriceItem {
@@ -176,4 +177,15 @@ export interface InAppNotification {
   title: string;
   message: string;
   created_at: string | null;
+}
+
+export interface GameLogEntry {
+  id: number;
+  timestamp: string;
+  action_type: string;
+  player_id: number | null;
+  player_name: string | null;
+  amount: number | null;
+  description: string;
+  cycle: number | null;
 }

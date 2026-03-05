@@ -119,6 +119,8 @@ def webapp_auth(body: dict, db: Session = Depends(get_db)):
             "effective_profit": round(effective, 2),
         })
 
+    prev_cycle_income = float(_get_setting(db, f"last_cycle_income_{player.id}", "0"))
+
     return {
         "id": player.id,
         "telegram_id": player.telegram_id,
@@ -127,6 +129,7 @@ def webapp_auth(body: dict, db: Session = Depends(get_db)):
         "revenue": _calc_revenue(player),
         "current_cycle": current_cycle,
         "enterprises": enterprises,
+        "prev_cycle_income": prev_cycle_income,
     }
 
 

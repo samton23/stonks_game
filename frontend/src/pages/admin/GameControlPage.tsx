@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Gamepad2, PlayCircle, Plus, Minus, DollarSign, Send,
-  ChevronDown, Trash2, Building2, Play, Pause, RotateCcw, Flag
+  ChevronDown, Trash2, Building2, Play, Pause, RotateCcw, Flag, Lock
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -30,6 +30,7 @@ export default function GameControlPage() {
   const [moneyReasons, setMoneyReasons] = useState<Record<number, string>>({})
   const [notifyInputs, setNotifyInputs] = useState<Record<number, string>>({})
   const [showAddEnterprise, setShowAddEnterprise] = useState<number | null>(null)
+  const [factoryInputs, setFactoryInputs] = useState<Record<string, string>>({})
   const [advancing, setAdvancing] = useState(false)
 
   // Timer state
@@ -162,18 +163,18 @@ export default function GameControlPage() {
     } catch (e: any) { toast.error(e.message) }
   }
 
-  const handleAddFactory = async (playerId: number, enterpriseId: number) => {
+  const handleAddFactory = async (playerId: number, enterpriseId: number, count = 1) => {
     try {
-      await addFactory(playerId, enterpriseId)
-      toast.success('Завод добавлен')
+      await addFactory(playerId, enterpriseId, count)
+      toast.success(count > 1 ? `+${count} заводов` : 'Завод добавлен')
       load()
     } catch (e: any) { toast.error(e.message) }
   }
 
-  const handleRemoveFactory = async (playerId: number, enterpriseId: number) => {
+  const handleRemoveFactory = async (playerId: number, enterpriseId: number, count = 1) => {
     try {
-      await removeFactory(playerId, enterpriseId)
-      toast.success('Завод убран')
+      await removeFactory(playerId, enterpriseId, count)
+      toast.success(count > 1 ? `-${count} заводов` : 'Завод убран')
       load()
     } catch (e: any) { toast.error(e.message) }
   }
@@ -215,6 +216,7 @@ export default function GameControlPage() {
 
   const isRunning = timerData?.timer_running ?? false
   const cycleExpired = cycleRemaining <= 0 && timerData !== null
+  const isZeroCycle = state.current_cycle === 0
 
   return (
     <div>
@@ -232,10 +234,11 @@ export default function GameControlPage() {
       </div>
 
       {/* Timer Panel */}
+      <div className="sticky top-0 z-20 -mx-8 px-8 -mt-8 pt-8 pb-4 bg-dark-900/95 backdrop-blur-sm mb-2">
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="glass rounded-2xl p-6 mb-6"
+        className="glass rounded-2xl p-6"
       >
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Таймеры</h3>
@@ -293,6 +296,7 @@ export default function GameControlPage() {
           </div>
         </div>
       </motion.div>
+      </div>
 
       {/* Cycle Control */}
       <motion.div
@@ -303,7 +307,7 @@ export default function GameControlPage() {
         <div>
           <div className="text-sm text-gray-500 uppercase tracking-wider mb-1">Текущий цикл</div>
           <div className="text-5xl font-bold font-mono text-gradient from-accent-green to-accent-blue">
-            {state.current_cycle}
+            {state.game_finished ? state.total_cycles : state.current_cycle}
             <span className="text-lg text-gray-500 font-normal ml-2">/ {state.total_cycles}</span>
           </div>
           {state.game_finished && (
@@ -352,7 +356,7 @@ export default function GameControlPage() {
       {/* Players */}
       <div className="space-y-4">
         <AnimatePresence>
-          {state.players.map((player, i) => {
+          {[...state.players].sort((a, b) => a.name.localeCompare(b.name, 'ru')).map((player, i) => {
             const isExpanded = expandedPlayer === player.id
             return (
               <motion.div
@@ -418,15 +422,22 @@ export default function GameControlPage() {
                         {/* Enterprises */}
                         <div>
                           <div className="flex items-center justify-between mb-3">
-                            <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+                            <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
                               Предприятия
+                              {isZeroCycle && (
+                                <span className="flex items-center gap-1 text-amber-400 text-xs font-normal normal-case">
+                                  <Lock size={11} />
+                                  заблокировано на цикле 0
+                                </span>
+                              )}
                             </h4>
                             <div className="relative">
                               <button
                                 onClick={() => setShowAddEnterprise(
                                   showAddEnterprise === player.id ? null : player.id
                                 )}
-                                className="px-3 py-1.5 bg-accent-blue/10 hover:bg-accent-blue/20 text-accent-blue rounded-lg text-sm flex items-center gap-1.5"
+                                disabled={isZeroCycle}
+                                className="px-3 py-1.5 bg-accent-blue/10 hover:bg-accent-blue/20 text-accent-blue rounded-lg text-sm flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                               >
                                 <Plus size={14} />
                                 Добавить
@@ -462,7 +473,7 @@ export default function GameControlPage() {
 
                           {player.enterprises.length > 0 ? (
                             <div className="space-y-2">
-                              {player.enterprises.map((pe) => (
+                              {[...player.enterprises].sort((a, b) => a.enterprise_id - b.enterprise_id).map((pe) => (
                                 <div
                                   key={pe.id}
                                   className="bg-dark-700/50 rounded-xl p-4 flex items-center justify-between"
@@ -478,26 +489,61 @@ export default function GameControlPage() {
                                   </div>
                                   <div className="flex items-center gap-4">
                                     <div className="flex items-center gap-2">
-                                      <span className="text-xs text-gray-500">🏗 Заводы:</span>
-                                      <button
-                                        onClick={() => handleRemoveFactory(player.id, pe.enterprise_id)}
-                                        className="w-7 h-7 rounded-lg bg-dark-600 hover:bg-accent-red/20 hover:text-accent-red flex items-center justify-center text-gray-400"
-                                      >
-                                        <Minus size={14} />
-                                      </button>
+                                      <span className="text-xs text-gray-500">🏗</span>
                                       <span className="font-mono font-bold w-6 text-center">
                                         {pe.factory_count}
                                       </span>
                                       <button
-                                        onClick={() => handleAddFactory(player.id, pe.enterprise_id)}
-                                        className="w-7 h-7 rounded-lg bg-dark-600 hover:bg-accent-green/20 hover:text-accent-green flex items-center justify-center text-gray-400"
+                                        onClick={() => handleRemoveFactory(
+                                          player.id,
+                                          pe.enterprise_id,
+                                          Math.max(1, parseInt(factoryInputs[`${player.id}-${pe.enterprise_id}`] || '1') || 1),
+                                        )}
+                                        disabled={isZeroCycle}
+                                        className="w-7 h-7 rounded-lg bg-dark-600 hover:bg-accent-red/20 hover:text-accent-red flex items-center justify-center text-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                                        title="Убрать заводов"
+                                      >
+                                        <Minus size={14} />
+                                      </button>
+                                      <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={factoryInputs[`${player.id}-${pe.enterprise_id}`] ?? '1'}
+                                        onChange={(e) => {
+                                          const val = e.target.value.replace(/\D/g, '')
+                                          setFactoryInputs(p => ({
+                                            ...p,
+                                            [`${player.id}-${pe.enterprise_id}`]: val,
+                                          }))
+                                        }}
+                                        onKeyDown={async (e) => {
+                                          if (e.key === 'Enter') {
+                                            const key = `${player.id}-${pe.enterprise_id}`
+                                            const count = Math.max(1, parseInt(factoryInputs[key] || '1') || 1)
+                                            setFactoryInputs(p => ({ ...p, [key]: '1' }))
+                                            await handleAddFactory(player.id, pe.enterprise_id, count)
+                                          }
+                                        }}
+                                        className="w-16 h-7 text-center bg-dark-600 border border-white/10 rounded-lg text-sm font-mono focus:outline-none focus:border-accent-green/50"
+                                      />
+                                      <button
+                                        onClick={() => handleAddFactory(
+                                          player.id,
+                                          pe.enterprise_id,
+                                          Math.max(1, parseInt(factoryInputs[`${player.id}-${pe.enterprise_id}`] || '1') || 1),
+                                        )}
+                                        disabled={isZeroCycle}
+                                        className="w-7 h-7 rounded-lg bg-dark-600 hover:bg-accent-green/20 hover:text-accent-green flex items-center justify-center text-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                                        title="Добавить заводов"
                                       >
                                         <Plus size={14} />
                                       </button>
                                     </div>
                                     <button
                                       onClick={() => handleRemoveEnterprise(player.id, pe.enterprise_id)}
-                                      className="p-1.5 hover:bg-accent-red/10 hover:text-accent-red rounded-lg text-gray-500"
+                                      disabled={isZeroCycle}
+                                      className="p-1.5 hover:bg-accent-red/10 hover:text-accent-red rounded-lg text-gray-500 disabled:opacity-40 disabled:cursor-not-allowed"
                                     >
                                       <Trash2 size={16} />
                                     </button>

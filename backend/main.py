@@ -6,8 +6,9 @@ from sqlalchemy import inspect, text
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base, SessionLocal
-from models import GameSetting, Enterprise, Notification, Player, PlayerStock, Event
+from models import GameSetting, Enterprise, Notification, Player, PlayerStock, Event, GameLog
 from routes import players, enterprises, settings, game, webapp, stocks, events, join
+from routes.history import router as history_router
 
 
 def generate_room_code():
@@ -33,6 +34,10 @@ if _inspector.has_table("players"):
             conn.execute(text("ALTER TABLE players ADD COLUMN browser_token VARCHAR(36) UNIQUE"))
         conn.execute(text("ALTER TABLE players ALTER COLUMN telegram_id DROP NOT NULL"))
 
+# Create game_logs table if it doesn't exist yet
+if not _inspector.has_table("game_logs"):
+    Base.metadata.create_all(bind=engine, tables=[GameLog.__table__])
+
 # Create tables
 Base.metadata.create_all(bind=engine)
 
@@ -54,6 +59,7 @@ app.include_router(webapp.router)
 app.include_router(stocks.router)
 app.include_router(events.router)
 app.include_router(join.router)
+app.include_router(history_router)
 
 
 # --- Default events from the rules document ---

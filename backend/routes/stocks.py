@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Player, PlayerStock, GameSetting
+from models import Player, PlayerStock, GameSetting, GameLog
 from schemas import StockTransfer, PlayerStockOut
 from typing import List, Optional
 import os
@@ -50,6 +50,17 @@ def _create_notification(db, player_id, ntype, emoji, title, message):
         message=message,
     )
     db.add(notif)
+
+
+def _log(db, action_type: str, description: str, player_id=None, player_name=None, amount=None, cycle=None):
+    db.add(GameLog(
+        action_type=action_type,
+        description=description,
+        player_id=player_id,
+        player_name=player_name,
+        amount=round(amount, 2) if amount is not None else None,
+        cycle=cycle,
+    ))
 
 
 def _bank_stock_filter(db: Session, target_player_id: int):
@@ -296,6 +307,32 @@ async def transfer_stock(data: StockTransfer, db: Session = Depends(get_db)):
         _create_notification(db, from_id, "stock", "📊",
             "Продажа акций",
             f"{to_player.name} купил {data.percentage}% акций {target.name}\n+${total_cost:,.0f}")
+
+    # Determine names for log entry
+    from_name = "Банк" if from_is_bank else (from_player.name if from_player else f"id:{from_id}")
+    to_name = "Банк" if to_is_bank else (to_player.name if to_player else f"id:{to_id}")
+    # Amount sign: negative = player spends money, positive = player receives money
+    if from_is_bank:
+        # Bank → Player: player buys (spending) → negative
+        log_player_id = to_id if not to_is_bank else None
+        log_player_name = to_name if not to_is_bank else None
+        log_amount = -total_cost
+    elif to_is_bank:
+        # Player → Bank: player sells (receiving) → positive
+        log_player_id = from_id if not from_is_bank else None
+        log_player_name = from_name if not from_is_bank else None
+        log_amount = total_cost
+    else:
+        # Player → Player: buyer (to_player) spends → negative
+        log_player_id = to_id
+        log_player_name = to_name
+        log_amount = -total_cost
+    _log(db, "stock_transfer",
+         f"{from_name} → {to_name}: {data.percentage}% акций {target.name} за ${total_cost:,.0f}",
+         player_id=log_player_id if log_player_id and log_player_id != 0 else None,
+         player_name=log_player_name,
+         amount=log_amount,
+         cycle=int(_get_setting(db, "current_cycle", "0")))
 
     db.commit()
     return {"ok": True}

@@ -1,12 +1,45 @@
 import random
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Event
+from models import Event, Enterprise, GameLog, GameSetting
 from schemas import EventCreate, EventUpdate, EventOut
 from typing import List
 
 router = APIRouter(prefix="/api/events", tags=["events"])
+
+
+def _get_setting(db: Session, key: str, default: str = "") -> str:
+    setting = db.query(GameSetting).filter(GameSetting.key == key).first()
+    return setting.value if setting else default
+
+
+def _log_event(db: Session, action_type: str, description: str, cycle=None):
+    db.add(GameLog(
+        action_type=action_type,
+        description=description,
+        player_id=None,
+        player_name=None,
+        amount=None,
+        cycle=cycle,
+    ))
+
+
+def _affected_text(db: Session, affected_json: str) -> str:
+    """Return human-readable list of affected enterprises, or empty string."""
+    if affected_json == "all":
+        return "все предприятия"
+    try:
+        ids = json.loads(affected_json)
+    except Exception:
+        ids = []
+    if not ids:
+        return ""
+    ents = db.query(Enterprise).filter(Enterprise.id.in_(ids)).all()
+    if not ents:
+        return ""
+    return ", ".join(f"{e.emoji}{e.name}" for e in ents)
 
 
 @router.get("", response_model=List[EventOut])
@@ -75,6 +108,17 @@ def activate_event(event_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Event not found")
     event.is_active = True
     event.remaining_cycles = event.duration_cycles
+    cycle = int(_get_setting(db, "current_cycle", "0"))
+    modifier_text = f"x{event.profit_modifier}" if event.profit_modifier != 1.0 else ""
+    affected = _affected_text(db, event.affected_enterprises)
+    parts = [f"{event.duration_cycles} цикл(ов)"]
+    if modifier_text:
+        parts.append(modifier_text)
+    if affected:
+        parts.append(f"→ {affected}")
+    _log_event(db, "event_start",
+               f"Событие: «{event.name}» ({', '.join(parts)})",
+               cycle=cycle)
     db.commit()
     db.refresh(event)
     return event
@@ -88,6 +132,11 @@ def deactivate_event(event_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Event not found")
     event.is_active = False
     event.remaining_cycles = 0
+    cycle = int(_get_setting(db, "current_cycle", "0"))
+    affected = _affected_text(db, event.affected_enterprises)
+    _log_event(db, "event_end",
+               f"Событие остановлено: «{event.name}»" + (f" ({affected})" if affected else ""),
+               cycle=cycle)
     db.commit()
     db.refresh(event)
     return event
@@ -102,6 +151,17 @@ def random_event(db: Session = Depends(get_db)):
     event = random.choice(inactive)
     event.is_active = True
     event.remaining_cycles = event.duration_cycles
+    cycle = int(_get_setting(db, "current_cycle", "0"))
+    modifier_text = f"x{event.profit_modifier}" if event.profit_modifier != 1.0 else ""
+    affected = _affected_text(db, event.affected_enterprises)
+    parts = [f"{event.duration_cycles} цикл(ов)"]
+    if modifier_text:
+        parts.append(modifier_text)
+    if affected:
+        parts.append(f"→ {affected}")
+    _log_event(db, "event_start",
+               f"Случайное событие: «{event.name}» ({', '.join(parts)})",
+               cycle=cycle)
     db.commit()
     db.refresh(event)
     return event

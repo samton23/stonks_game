@@ -189,7 +189,8 @@ export default function StocksPage() {
             <label className="block text-xs text-gray-500 mb-1.5">Цена за 10%</label>
             <input
               type="number"
-              value={price || defaultStockPrice}
+              value={price}
+              placeholder={defaultStockPrice}
               onChange={e => setPrice(e.target.value)}
               className="w-full bg-dark-600 border border-white/10 rounded-lg px-3 py-2 text-sm"
             />
@@ -227,7 +228,16 @@ export default function StocksPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-6">
+                {(() => {
+                  const gp = players.find(gpl => gpl.id === p.player_id)
+                  return gp ? (
+                    <div className="text-right">
+                      <div className="text-xs text-gray-500">Баланс</div>
+                      <div className="font-mono font-bold text-accent-green text-sm">${gp.money.toLocaleString()}</div>
+                    </div>
+                  ) : null
+                })()}
                 {p.holders.length > 0 && (
                   <div className="text-right">
                     <div className="text-xs text-gray-500 mb-1">Владельцы</div>

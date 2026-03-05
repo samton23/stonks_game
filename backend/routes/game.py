@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Player, Enterprise, PlayerEnterprise, GameSetting, Notification, PlayerStock, Event
+from models import Player, Enterprise, PlayerEnterprise, GameSetting, Notification, PlayerStock, Event, GameLog
 from schemas import MoneyAdjust, SendNotification, FactoryAdjust, DashboardPlayer
 from typing import List
 
@@ -60,6 +60,17 @@ def _set_setting(db: Session, key: str, value: str):
         db.add(setting)
     else:
         setting.value = value
+
+
+def _log(db: Session, action_type: str, description: str, player_id=None, player_name=None, amount=None, cycle=None):
+    db.add(GameLog(
+        action_type=action_type,
+        description=description,
+        player_id=player_id,
+        player_name=player_name,
+        amount=round(amount, 2) if amount is not None else None,
+        cycle=cycle,
+    ))
 
 
 def _calc_revenue(player: Player) -> float:
@@ -282,6 +293,8 @@ async def advance_cycle(db: Session = Depends(get_db)):
                 details.append(f"{ent.emoji} {ent.name}: +${effective:,.0f}{mod_text}")
 
         player.money = round(player.money + income, 2)
+        # Store last cycle income for player profile display
+        _set_setting(db, f"last_cycle_income_{player.id}", str(round(income, 2)))
 
         # Notification
         detail_text = "\n".join(details)
@@ -314,11 +327,25 @@ async def advance_cycle(db: Session = Depends(get_db)):
         if player.telegram_id:
             await send_telegram_message(player.telegram_id, "\n".join(msg_lines))
 
+        # Log income
+        if income > 0:
+            _log(db, "income",
+                 f"{player.name}: +${income:,.0f} (цикл {current_cycle})",
+                 player_id=player.id, player_name=player.name,
+                 amount=income, cycle=current_cycle)
+
+    # System log: cycle advanced
+    _log(db, "cycle", f"Цикл {current_cycle} начат", cycle=current_cycle)
+
+    # Track which cycle income was last paid (for finish_game guard)
+    _set_setting(db, "last_income_cycle", str(current_cycle))
+
     # Decrement event remaining_cycles
     for event in active_events:
         event.remaining_cycles -= 1
         if event.remaining_cycles <= 0:
             event.is_active = False
+            _log(db, "event_end", f"Событие завершилось: «{event.name}»", cycle=current_cycle)
 
     # Reset cycle timer
     is_running = _get_setting(db, "timer_running", "false") == "true"
@@ -349,12 +376,39 @@ async def finish_game(db: Session = Depends(get_db)):
     Final tick: enterprises with cycle_interval > 1 pay proportional income.
     Then stocks are settled: each stock holder gets % of target player's final budget.
     """
-    current_cycle = int(_get_setting(db, "current_cycle", "0"))
+    last_income_cycle = int(_get_setting(db, "last_income_cycle", "0"))
 
     # Get active events
     active_events = db.query(Event).filter(Event.is_active == True, Event.remaining_cycles > 0).all()
 
     players = db.query(Player).all()
+
+    # Step 0: Always advance one final cycle and pay income.
+    # This ensures the last round's revenue is applied whether or not
+    # the admin pressed "Next Cycle" before "Finish Game".
+    current_cycle = int(_get_setting(db, "current_cycle", "0")) + 1
+    _set_setting(db, "current_cycle", str(current_cycle))
+
+    for player in players:
+        income = 0.0
+        details = []
+        for pe in player.enterprises:
+            ent = pe.enterprise
+            if current_cycle % ent.profit_cycle_interval == 0:
+                base_profit = ent.profit * (1 + pe.factory_count * ent.factory_profit_percent / 100)
+                event_mod = _get_event_modifier(ent.id, active_events)
+                effective = base_profit * event_mod
+                income += effective
+                details.append(f"{ent.emoji} {ent.name}: +${effective:,.0f}")
+        if income > 0:
+            player.money = round(player.money + income, 2)
+            _set_setting(db, f"last_cycle_income_{player.id}", str(round(income, 2)))
+            _log(db, "income",
+                 f"{player.name}: +${income:,.0f} (финальный цикл {current_cycle})",
+                 player_id=player.id, player_name=player.name,
+                 amount=income, cycle=current_cycle)
+    _set_setting(db, "last_income_cycle", str(current_cycle))
+    db.commit()
 
     # Step 1: Proportional payout for enterprises with interval > 1
     for player in players:
@@ -412,6 +466,13 @@ async def finish_game(db: Session = Depends(get_db)):
                 "Расчёт по акциям",
                 f"+${bonus:,.0f} от акций других игроков",
             )
+            _log(db, "stock_settle",
+                 f"{player.name}: +${bonus:,.0f} от акций других игроков",
+                 player_id=player.id, player_name=player.name,
+                 amount=bonus, cycle=current_cycle)
+
+    # System log: game end
+    _log(db, "game_end", f"Игра завершена (цикл {current_cycle})", cycle=current_cycle)
 
     # Mark game as finished
     _set_setting(db, "game_finished", "true")
@@ -478,6 +539,11 @@ def add_enterprise_to_player(player_id: int, enterprise_id: int, db: Session = D
         "Новое предприятие!",
         f"Вам добавлено: {enterprise.name}\n-${enterprise.price:,.0f} • Баланс: ${player.money:,.0f}",
     )
+    _log(db, "enterprise_buy",
+         f"{player.name}: куплено {enterprise.emoji}{enterprise.name} за ${enterprise.price:,.0f}",
+         player_id=player_id, player_name=player.name,
+         amount=-enterprise.price,
+         cycle=int(_get_setting(db, "current_cycle", "0")))
 
     db.commit()
     return {"ok": True}
@@ -495,6 +561,7 @@ def remove_enterprise_from_player(player_id: int, enterprise_id: int, db: Sessio
     enterprise = db.query(Enterprise).filter(Enterprise.id == enterprise_id).first()
     ent_name = enterprise.name if enterprise else "Предприятие"
 
+    player = db.query(Player).filter(Player.id == player_id).first()
     db.delete(pe)
 
     _create_notification(
@@ -502,6 +569,10 @@ def remove_enterprise_from_player(player_id: int, enterprise_id: int, db: Sessio
         "Предприятие убрано",
         f"Удалено: {ent_name}",
     )
+    _log(db, "enterprise_remove",
+         f"{player.name if player else f'Игрок {player_id}'}: убрано {ent_name}",
+         player_id=player_id, player_name=player.name if player else None,
+         cycle=int(_get_setting(db, "current_cycle", "0")))
 
     db.commit()
     return {"ok": True}
@@ -532,6 +603,12 @@ def add_factory(player_id: int, enterprise_id: int, data: FactoryAdjust, db: Ses
         "Новый завод!",
         f"+{data.count} завод для {ent_name}\n-${cost:,.0f} • Баланс: ${player.money:,.0f}" if player else f"+{data.count} завод для {ent_name}",
     )
+    if player:
+        _log(db, "factory_buy",
+             f"{player.name}: +{data.count} зав. [{ent_name}] за ${cost:,.0f}",
+             player_id=player_id, player_name=player.name,
+             amount=-cost,
+             cycle=int(_get_setting(db, "current_cycle", "0")))
 
     db.commit()
     return {"ok": True, "factory_count": pe.factory_count}
@@ -545,16 +622,30 @@ def remove_factory(player_id: int, enterprise_id: int, data: FactoryAdjust, db: 
     ).first()
     if not pe:
         raise HTTPException(404, "Player enterprise not found")
+
+    removed = min(data.count, pe.factory_count)
     pe.factory_count = max(0, pe.factory_count - data.count)
 
     enterprise = db.query(Enterprise).filter(Enterprise.id == enterprise_id).first()
     ent_name = enterprise.name if enterprise else "предприятие"
 
+    # Refund factory cost
+    player = db.query(Player).filter(Player.id == player_id).first()
+    refund = (enterprise.factory_price * removed) if enterprise else 0
+    if player and refund > 0:
+        player.money = round(player.money + refund, 2)
+
     _create_notification(
         db, player_id, "factory", "🔧",
         "Завод убран",
-        f"-{data.count} завод у {ent_name}\nОсталось заводов: {pe.factory_count}",
+        f"-{removed} завод у {ent_name}, возврат: +${refund:,.0f}\nОсталось заводов: {pe.factory_count}",
     )
+    if player:
+        _log(db, "factory_remove",
+             f"{player.name}: -{removed} зав. [{ent_name}], возврат ${refund:,.0f}",
+             player_id=player_id, player_name=player.name,
+             amount=refund,
+             cycle=int(_get_setting(db, "current_cycle", "0")))
 
     db.commit()
     return {"ok": True, "factory_count": pe.factory_count}
@@ -582,6 +673,14 @@ async def adjust_money(player_id: int, data: MoneyAdjust, db: Session = Depends(
         msg += f"\n{data.reason}"
 
     _create_notification(db, player_id, ntype, emoji, title, msg)
+
+    # Log money adjustment
+    reason_suffix = f" — {data.reason}" if data.reason else ""
+    _log(db, "money_adj",
+         f"{player.name}: {sign}${data.amount:,.0f}{reason_suffix}",
+         player_id=player_id, player_name=player.name,
+         amount=data.amount,
+         cycle=int(_get_setting(db, "current_cycle", "0")))
 
     # Telegram message
     msg_lines = [
@@ -831,6 +930,7 @@ async def reset_game(db: Session = Depends(get_db)):
 
     # Reset game finished flag
     _set_setting(db, "game_finished", "false")
+    _set_setting(db, "last_income_cycle", "0")
 
     # Reset timers
     _set_setting(db, "timer_running", "false")
@@ -890,6 +990,9 @@ async def reset_game(db: Session = Depends(get_db)):
     import random, string
     new_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
     _set_setting(db, "room_code", new_code)
+
+    # Log game reset
+    _log(db, "game_start", "Игра сброшена", cycle=0)
 
     db.commit()
     return {"ok": True}
